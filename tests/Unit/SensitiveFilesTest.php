@@ -31,9 +31,19 @@ final class SensitiveFilesTest extends TestCase
         ]);
 
         self::assertCount(1, $findings);
+        self::assertSame('sensitive-file-env', $findings[0]->id);
         self::assertSame(Severity::High, $findings[0]->severity);
         self::assertStringContainsString('APP_KEY', $findings[0]->evidence);
         self::assertNotEmpty($findings[0]->reproduce);
+    }
+
+    public function testTheRootDocumentIsNotAnExposedFile(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/' => new Response(200, [], '{"ok":true}'),
+        ]);
+
+        self::assertSame([], $findings);
     }
 
     public function testA404IsNotAFinding(): void

@@ -55,6 +55,11 @@ final class SensitiveFiles implements Check
         $findings = [];
 
         foreach ($responses as $path => $response) {
+            // The root document is the site itself, not an exposed file.
+            if ($path === '/') {
+                continue;
+            }
+
             if ($response->getStatusCode() !== 200) {
                 continue;
             }
@@ -71,7 +76,7 @@ final class SensitiveFiles implements Check
                 : 'no credential-looking keys matched';
 
             $findings[] = new Finding(
-                id: 'sensitive-file-' . str_replace('/', '-', $relative),
+                id: 'sensitive-file-' . str_replace('/', '-', ltrim($relative, '.')),
                 title: 'Exposed ' . $relative,
                 severity: $severity,
                 target: $target->label(),

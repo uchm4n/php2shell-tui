@@ -16,5 +16,6 @@ final class Application extends BaseApplication
     {
         parent::__construct(self::NAME, self::VERSION);
         $this->add(new ScanCommand());
+        $this->setDefaultCommand('scan');
     }
 }
