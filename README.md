@@ -1,11 +1,11 @@
-# php2scan
+# PHP2Shell TUI 
 
-Black-box exposure scanner for CVE-2026-109618 / CVE-2026-109619 ("PHP2Shell") and general web
+Exposure scanner for CVE-2026-109618 / CVE-2026-109619 ("PHP2Shell") and general web
 misconfiguration. Each finding carries evidence, a one-sentence exploit line, and runnable
 reproduce steps.
 
 It only contacts the hosts listed in your config — no discovery, no host argument, no brute force.
-Use it only on hosts you own or are authorised to test.
+Use it only on hosts you own or are authorized to test.
 
 ## Requirements
 
@@ -13,12 +13,8 @@ Use it only on hosts you own or are authorised to test.
 - Composer
 
 ## Install
+Download [php2scan.phar](https://github.com/uchm4n/php2shell-tui/php2shell-tui).
 
-```bash
-git clone git@github.com:uchm4n/php2shell-tui.git
-cd php2shell-tui
-composer install
-```
 
 ## Configure
 
@@ -58,13 +54,15 @@ output:
 ## Usage
 
 ```bash
-bin/php2scan                          # scan; TUI when attached to a terminal
-bin/php2scan --format json            # pipeable JSON on stdout
-bin/php2scan --format markdown --output-dir ./out
-bin/php2scan --config other.yaml
+./php2shell-tui scan                     # scan; TUI when attached to a terminal
+./php2shell-tui scan --format json       # pipeable JSON on stdout
+./php2shell-tui scan --format markdown --output-dir ./out
+./php2shell-tui scan --config other.yaml
 ```
 
-Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error.
+TUI keys: `q`, `Esc` or `Ctrl-C` quit (`j`/`k` or arrows move, `Enter` expands a finding).
+
+Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 
 ### Phase 3: proof-of-concept probes
 
@@ -93,6 +91,8 @@ reproduce steps rather than a destructive payload.
 
 ## Development
 
+Build the PHAR with `composer build`, then run `./php2shell-tui`.
+
 ```bash
 composer test
 ```
@@ -100,12 +100,5 @@ composer test
 The suite starts a local fixture server; nothing external is contacted. Contributions: branch,
 keep the suite green, open a pull request.
 
-## TODO
-
-- [ ] `crawl_depth` config key (the crawler currently follows one hop)
-- [ ] Optional `nuclei` passthrough (`--with-nuclei`) with a curated template list
-- [ ] Pool the port probes instead of 150 ms sequential connects
-
 ## License
-
-MIT, as declared in `composer.json`.
+MIT

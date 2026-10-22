@@ -8,3 +8,4 @@
 /.superpowers/
 /.opencode/
 .DS_Store
+bin/*.phar
