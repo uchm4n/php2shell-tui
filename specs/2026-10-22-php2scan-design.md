@@ -181,7 +181,7 @@ tests/
 ```yaml
 targets:
   - https://www.php2shell.com
-  - https://legacy.example.com
+  - url: https://legacy.example.com
     vhost: legacy.example.com        # override the Host: header while keeping the URL as
                                      # written — e.g. url https://203.0.113.10/ + Host:
                                      # legacy.example.com to reach a vhost on a shared IP
