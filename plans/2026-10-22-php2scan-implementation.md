@@ -526,7 +526,7 @@ git commit -m "feat: severity enum and finding value object"
 - Consumes: `Php2Scan\Severity` (Task 2).
 - Produces:
   - `Php2Scan\Target` — `final class Target` with `public readonly` promoted properties `string $url`, `?string $vhost`, `array $paths` (`list<string>`), `bool $staging`; methods `host(): string` (host component of `$url`), `requestHeaders(): array` (returns `['Host' => $vhost]` when `$vhost` is not null, otherwise `[]`), `label(): string` (returns `$this->vhost ?? $this->host()`).
-  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data, string $baseDir = ''): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
+  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
 
 - [ ] **Step 1: Write the failing test `tests/Unit/ConfigTest.php`**
 
@@ -720,13 +720,13 @@ final class Config
             throw new \InvalidArgumentException(sprintf('Config file "%s" is empty or malformed.', $path));
         }
 
-        return self::fromArray($parsed, dirname($path));
+        return self::fromArray($parsed);
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public static function fromArray(array $data, string $baseDir = ''): self
+    public static function fromArray(array $data): self
     {
         $targets = self::parseTargets($data['targets'] ?? []);
         $checks = self::parseChecks($data['checks'] ?? []);
