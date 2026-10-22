@@ -15,6 +15,7 @@ final class HttpTest extends TestCase
 {
     private static ?int $port = null;
     private static mixed $process = null;
+    private static int $masterPid = 0;
 
     public static function setUpBeforeClass(): void
     {
@@ -27,13 +28,26 @@ final class HttpTest extends TestCase
             // The built-in server is single threaded unless it forks workers.
             array_merge(getenv(), ['PHP_CLI_SERVER_WORKERS' => '8'])
         );
-        self::waitForServer();
+        // The pid has to be read here: once the process is reaped proc_get_status()
+        // returns 0, and posix_kill(0, ...) would signal the whole process group.
+        $status = proc_get_status(self::$process);
+        self::$masterPid = (int) $status['pid'];
+        self::waitForServer((int) self::$port);
     }
 
     public static function tearDownAfterClass(): void
     {
+        // `php -S` ignores SIGTERM: neither the master nor its PHP_CLI_SERVER_WORKERS children
+        // exit, so proc_close() would block forever and the port would stay bound for the next
+        // run. Kill whatever holds the socket first, then the master.
+        self::killListenersOnPort((int) self::$port);
+
+        if (self::$masterPid > 1) {
+            @posix_kill(self::$masterPid, SIGKILL);
+        }
+
         if (is_resource(self::$process)) {
-            proc_terminate(self::$process);
+            proc_terminate(self::$process, SIGKILL);
             proc_close(self::$process);
         }
     }
@@ -162,6 +176,48 @@ final class HttpTest extends TestCase
         self::assertSame(200, $response->getStatusCode());
     }
 
+    public function testTheTeardownHelperReleasesThePort(): void
+    {
+        if (!function_exists('exec') || !function_exists('posix_kill') || !self::hasLsof()) {
+            self::markTestSkipped('exec(), posix_kill() and lsof are needed to tear the fixture server down.');
+        }
+
+        $port = self::findFreePort();
+        $process = proc_open(
+            sprintf('exec php -S 127.0.0.1:%d %s', $port, escapeshellarg(__DIR__ . '/../Fixture/server.php')),
+            [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+            $pipes,
+            null,
+            array_merge(getenv(), ['PHP_CLI_SERVER_WORKERS' => '1'])
+        );
+
+        try {
+            self::waitForServer($port);
+            self::assertNotSame([], self::listenersOnPort($port), 'the fixture server must hold the port');
+
+            self::killListenersOnPort($port);
+
+            // The kill is asynchronous, so give the kernel a moment to tear the socket down.
+            $deadline = microtime(true) + 5.0;
+            while (microtime(true) < $deadline && self::listenersOnPort($port) !== []) {
+                usleep(50_000);
+            }
+
+            self::assertSame([], self::listenersOnPort($port), 'killListenersOnPort() must release the port');
+
+            $socket = @stream_socket_server(sprintf('tcp://127.0.0.1:%d', $port), $errno, $errstr);
+            self::assertNotFalse($socket, 'the port must be bindable again');
+            fclose($socket);
+        } finally {
+            self::killListenersOnPort($port);
+
+            if (is_resource($process)) {
+                proc_terminate($process, SIGKILL);
+                proc_close($process);
+            }
+        }
+    }
+
     /**
      * @param array<string, int> $handlerOptions
      * @return array{Pool, Client}
@@ -188,12 +244,12 @@ final class HttpTest extends TestCase
         return (int) substr((string) $name, strrpos((string) $name, ':') + 1);
     }
 
-    private static function waitForServer(): void
+    private static function waitForServer(int $port): void
     {
         $deadline = microtime(true) + 10.0;
 
         while (microtime(true) < $deadline) {
-            $socket = @fsockopen('127.0.0.1', (int) self::$port, $errno, $errstr, 0.2);
+            $socket = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.2);
             if (is_resource($socket)) {
                 fclose($socket);
 
@@ -204,5 +260,50 @@ final class HttpTest extends TestCase
         }
 
         self::fail('The fixture server did not start.');
+    }
+
+    private static function killListenersOnPort(int $port): void
+    {
+        if (!function_exists('exec') || !function_exists('posix_kill')) {
+            return;
+        }
+
+        $pids = [];
+        exec(sprintf('lsof -ti tcp:%d 2>/dev/null', $port), $pids);
+
+        foreach ($pids as $pid) {
+            $pid = (int) trim($pid);
+            if ($pid > 1) {
+                @posix_kill($pid, SIGKILL);
+            }
+        }
+    }
+
+    /**
+     * @return list<int>
+     */
+    private static function listenersOnPort(int $port): array
+    {
+        if (!function_exists('exec')) {
+            return [];
+        }
+
+        $pids = [];
+        exec(sprintf('lsof -ti tcp:%d 2>/dev/null', $port), $pids);
+
+        return array_values(array_map(static fn (string $pid): int => (int) trim($pid), $pids));
+    }
+
+    private static function hasLsof(): bool
+    {
+        if (!function_exists('exec')) {
+            return false;
+        }
+
+        $output = [];
+        $status = 1;
+        exec('command -v lsof 2>/dev/null', $output, $status);
+
+        return $status === 0;
     }
 }

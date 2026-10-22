@@ -21,6 +21,8 @@ final class SecurityHeaders implements Check
         'X-Permitted-Cross-Domain-Policies' => Severity::Low,
     ];
 
+    private const COOKIE_FLAGS = ['Secure', 'HttpOnly', 'SameSite'];
+
     public function __construct(private readonly Reproduce $reproduce)
     {
     }
@@ -84,16 +86,13 @@ final class SecurityHeaders implements Check
 
         foreach ($response->getHeader('Set-Cookie') as $cookie) {
             $name = self::cookieName($cookie);
+            $attributes = self::cookieAttributes($cookie);
             $missing = [];
 
-            if (stripos($cookie, 'secure') === false) {
-                $missing[] = 'Secure';
-            }
-            if (stripos($cookie, 'httponly') === false) {
-                $missing[] = 'HttpOnly';
-            }
-            if (stripos($cookie, 'samesite') === false) {
-                $missing[] = 'SameSite';
+            foreach (self::COOKIE_FLAGS as $flag) {
+                if (!in_array(strtolower($flag), $attributes, true)) {
+                    $missing[] = $flag;
+                }
             }
 
             if ($missing === []) {
@@ -161,6 +160,35 @@ final class SecurityHeaders implements Check
         $parts = explode('=', $cookie, 2);
 
         return trim($parts[0]);
+    }
+
+    /**
+     * The attribute names of a Set-Cookie header, lower-cased.
+     *
+     * A cookie is "name=value; attr; attr=value". Only the segments after the
+     * first one are attributes, and an attribute is named by the part before its
+     * first "=" - matching on the whole header would let a cookie *named*
+     * "secure_session" pass for a cookie carrying the Secure attribute.
+     *
+     * @return list<string>
+     */
+    private static function cookieAttributes(string $cookie): array
+    {
+        $segments = explode(';', $cookie);
+        array_shift($segments);
+
+        $attributes = [];
+
+        foreach ($segments as $segment) {
+            $segment = trim($segment);
+            if ($segment === '') {
+                continue;
+            }
+
+            $attributes[] = strtolower(explode('=', $segment, 2)[0]);
+        }
+
+        return $attributes;
     }
 
     private function finding(

@@ -88,4 +88,33 @@ final class SecurityHeadersTest extends TestCase
         $ids = array_map(static fn ($f): string => $f->id, $findings);
         self::assertNotContains('missing-header-strict-transport-security', $ids);
     }
+
+    public function testACookieNamedSecureIsNotMistakenForTheSecureAttribute(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, ['Set-Cookie' => 'secure_session=abc; path=/'], 'body'),
+        ]);
+
+        $cookie = null;
+        foreach ($findings as $finding) {
+            if (str_starts_with($finding->id, 'cookie-flags-')) {
+                $cookie = $finding;
+                break;
+            }
+        }
+
+        self::assertNotNull($cookie, 'the cookie must be reported');
+        self::assertStringContainsString('missing Secure', $cookie->title);
+    }
+
+    public function testACookieCarryingEveryFlagIsNotReported(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, ['Set-Cookie' => 'session=abc; Secure; HttpOnly; SameSite=Lax'], 'body'),
+        ]);
+
+        foreach ($findings as $finding) {
+            self::assertStringStartsNotWith('cookie-flags-', $finding->id);
+        }
+    }
 }
