@@ -17,7 +17,7 @@ Use it only on hosts you own or are authorized to test.
 - Composer
 
 ## Install
-Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/php2shell-tui)
+Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/raw/refs/heads/feature/php2shell-tui/php2shell-tui)
 
 ## Configure
 Edit `php2shell-tui.yaml` it is a default configuration file. 
