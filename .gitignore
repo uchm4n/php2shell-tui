@@ -1,5 +1,6 @@
 /vendor/
 /build/
+/php2shell-tui
 /reports/
 /.idea/
 /.phpunit.cache/
