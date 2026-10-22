@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Php2Scan\Tests\Unit;
 
+use Php2Scan\Application;
 use Php2Scan\Config;
 use Php2Scan\Severity;
 use PHPUnit\Framework\TestCase;
@@ -77,6 +78,13 @@ final class ConfigTest extends TestCase
         self::assertSame(Severity::Medium, $config->minSeverity);
         self::assertSame('tui', $config->format);
         self::assertSame('./reports', $config->reportDir);
+    }
+
+    public function testTheDefaultUserAgentNamesTheApplicationVersion(): void
+    {
+        $config = Config::fromArray(['targets' => ['https://example.com']]);
+
+        self::assertStringContainsString(Application::VERSION, $config->userAgent);
     }
 
     public function testATargetCanOverrideTheHostHeader(): void

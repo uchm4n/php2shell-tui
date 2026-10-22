@@ -81,7 +81,7 @@ final class Config
             timeout: max(1, (int) ($options['timeout'] ?? 10)),
             connectTimeout: max(1, (int) ($options['connect_timeout'] ?? 5)),
             delayMs: max(0, (int) ($options['delay_ms'] ?? 100)),
-            userAgent: (string) ($options['user_agent'] ?? 'php2scan/1.0'),
+            userAgent: (string) ($options['user_agent'] ?? sprintf('php2scan/%s', Application::VERSION)),
             verify: (bool) ($options['verify'] ?? false),
             minSeverity: $minSeverity,
             format: $format,
