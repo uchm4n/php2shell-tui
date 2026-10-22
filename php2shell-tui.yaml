@@ -1,11 +1,13 @@
 targets:
-  - https://www.php2shell.com
-  - url: https://legacy.example.com
-    vhost: legacy.example.com        # override the Host: header while keeping the URL as
-                                     # written — e.g. url https://203.0.113.10/ + Host:
-                                     # legacy.example.com to reach a vhost on a shared IP
-    paths: ["/wp-content/uploads"]   # extra directories for webshell probing
-    staging: true                    # suppress the --yes prompt for --verify
+  - https://example1.com
+  - https://example2.com
+  - https://example3.com
+  - url: https://legacy.example4.com
+    paths: ["/wp-content/uploads"]
+    staging: true
+
+  - url: https://legacy.example5.com
+    paths: [ "/admin", "/wp-admin", "/login" ]
 
 checks:
   php_presence: true

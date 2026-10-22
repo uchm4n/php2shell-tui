@@ -1,4 +1,4 @@
-# PHP2Shell TUI 
+# PHP2Shell-TUI 
 
 Exposure scanner for CVE-2026-109618 / CVE-2026-109619 ("PHP2Shell") and general web
 misconfiguration. Each finding carries evidence, a one-sentence exploit line, and runnable
@@ -7,22 +7,35 @@ reproduce steps.
 It only contacts the hosts listed in your config — no discovery, no host argument, no brute force.
 Use it only on hosts you own or are authorized to test.
 
+**Note**: It checks the **PHP2Shell** exposure condition, **not** the exploit itself.
+
 ## Requirements
 
 - PHP 8.2+ with `curl`, `json` and `openssl` (all standard)
 - Composer
 
 ## Install
-Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/php2shell-tui).
-
+Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/php2shell-tui)
 
 ## Configure
+Edit `php2shell-tui.yaml` it is a default configuration file. 
+You can also specify a different config file with `./php2shell-tui scan --config other.yaml`
 
-Edit `php2shell-tui.yaml`; it is read by default.
 
 ```yaml
 targets:
-  - https://www.example.com
+  - https://example.com
+  - https://example1.com
+  - https://example2.com
+  - https://example3.com
+  
+  - url: https://legacy.example4.com
+    paths: ["/wp-content/uploads"]
+    staging: true
+
+  - url: https://legacy.example5.com
+    paths: [ "/admin", "/wp-admin", "/login" ]
+    
   - url: https://203.0.113.10/
     vhost: legacy.example.com        # Host: header to send to that IP
     paths: ["/wp-content/uploads"]   # extra directories to check for webshells
@@ -37,7 +50,7 @@ checks:
   app_fingerprint: true
   webshell_indicators: true
   open_ports: true
-  injection: false                   # phase 3, also needs --verify
+  injection: false                   # also needs --verify
 
 options:
   concurrency: 8
