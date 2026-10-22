@@ -79,6 +79,24 @@ final class ReportTest extends TestCase
         self::assertStringNotContainsString('Exposed .env', $text);
     }
 
+    public function testTheJsonReportKeepsTheFindingsBelowMinSeverity(): void
+    {
+        $config = Config::fromArray([
+            'targets' => ['https://legacy.example.com'],
+            'options' => ['min_severity' => 'critical'],
+        ]);
+        $report = new Report($this->scanResult(), $config);
+        $decoded = json_decode($report->json(), true, 512, JSON_THROW_ON_ERROR);
+
+        // The threshold only filters the text and markdown reports.
+        self::assertCount(2, $decoded['findings']);
+        self::assertSame('php2shell-version', $decoded['findings'][0]['id']);
+        self::assertSame('sensitive-file-env', $decoded['findings'][1]['id']);
+        self::assertSame('high', $decoded['findings'][1]['severity']);
+        self::assertStringContainsString('PHP2Shell', $report->text());
+        self::assertStringNotContainsString('Exposed .env', $report->text());
+    }
+
     public function testMarkdownIncludesTheReproduceSteps(): void
     {
         $report = new Report($this->scanResult(), Config::fromArray(['targets' => ['https://legacy.example.com']]));

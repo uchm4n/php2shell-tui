@@ -37,6 +37,17 @@ final class SensitiveFilesTest extends TestCase
         self::assertNotEmpty($findings[0]->reproduce);
     }
 
+    public function testTheExploitLineHasNoDoubleSlashForATargetUrlWithATrailingSlash(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com/'), [
+            '/.env' => new Response(200, [], "APP_KEY=abc\n"),
+        ]);
+
+        self::assertCount(1, $findings);
+        self::assertStringContainsString('https://legacy.example.com/.env', $findings[0]->exploit);
+        self::assertStringNotContainsString('https://legacy.example.com//.env', $findings[0]->exploit);
+    }
+
     public function testTheRootDocumentIsNotAnExposedFile(): void
     {
         $findings = $this->check->analyze(new Target('https://legacy.example.com'), [

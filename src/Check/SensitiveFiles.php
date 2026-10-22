@@ -85,7 +85,7 @@ final class SensitiveFiles implements Check
                     strlen($body),
                     $matched
                 ),
-                exploit: sprintf('Request %s and read whatever it returns - it is served publicly.', $target->url . '/' . $relative),
+                exploit: sprintf('Request %s and read whatever it returns - it is served publicly.', rtrim($target->url, '/') . '/' . $relative),
                 reproduce: $this->reproduce->steps('sensitive-file', $target->url, $target->label(), ['path' => $relative]),
             );
         }
