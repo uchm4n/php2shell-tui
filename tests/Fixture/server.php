@@ -65,6 +65,21 @@ switch ($path) {
         header(sprintf('Location: http://localhost:%d/secure', (int) ($_SERVER['SERVER_PORT'] ?? 80)));
         break;
 
+    case '/search':
+        $q = (string) ($_GET['q'] ?? '');
+
+        // A quote reaches the "database" here, so the SQL check has something
+        // real to confirm against. Everything else is reflected and escaped.
+        if (str_contains($q, "'")) {
+            http_response_code(500);
+            echo 'SQL syntax error';
+
+            break;
+        }
+
+        echo 'results for ' . htmlspecialchars($q, ENT_QUOTES);
+        break;
+
     default:
         http_response_code(200);
         header('X-Powered-By: PHP/8.1.29');

@@ -74,7 +74,6 @@ final class ConfigTest extends TestCase
         self::assertSame(10, $config->timeout);
         self::assertSame(5, $config->connectTimeout);
         self::assertSame(100, $config->delayMs);
-        self::assertFalse($config->verify);
         self::assertSame(Severity::Medium, $config->minSeverity);
         self::assertSame('tui', $config->format);
         self::assertSame('./reports', $config->reportDir);

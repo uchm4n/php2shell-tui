@@ -8,12 +8,15 @@ use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
 use Php2Scan\Check\AppFingerprint;
+use Php2Scan\Check\LocalFileInclusion;
 use Php2Scan\Check\OpenPorts;
 use Php2Scan\Check\PhpDetection;
 use Php2Scan\Check\PhpVersion;
+use Php2Scan\Check\ReflectedXss;
 use Php2Scan\Check\Registry;
 use Php2Scan\Check\SecurityHeaders;
 use Php2Scan\Check\SensitiveFiles;
+use Php2Scan\Check\SqlInjection;
 use Php2Scan\Check\Tls;
 use Php2Scan\Check\WebshellIndicators;
 use Php2Scan\Config;
@@ -32,6 +35,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 #[AsCommand(name: 'scan', description: 'Scan the configured hosts for security exposure')]
 final class ScanCommand extends Command
@@ -66,6 +70,8 @@ final class ScanCommand extends Command
                 ));
             }
 
+            $verify = (bool) $input->getOption('verify');
+
             $root = dirname(__DIR__, 2);
             $dataDir = $root . '/data';
 
@@ -86,7 +92,7 @@ final class ScanCommand extends Command
             $reproduce = new Reproduce($dataDir . '/repro');
             $db = PhpVersionDb::fromFile($dataDir . '/php-affected.json');
 
-            $registry = new Registry([
+            $checks = [
                 'php_presence' => new PhpDetection($reproduce),
                 'php_version' => new PhpVersion($db, $reproduce),
                 'sensitive_files' => new SensitiveFiles($wordlists, $reproduce),
@@ -95,9 +101,44 @@ final class ScanCommand extends Command
                 'app_fingerprint' => new AppFingerprint($reproduce),
                 'webshell_indicators' => new WebshellIndicators($wordlists, $reproduce),
                 'open_ports' => new OpenPorts($wordlists, $reproduce),
-            ]);
+            ];
+
+            if ($verify && $config->checkEnabled('injection')) {
+                $checks['sql_injection'] = new SqlInjection($reproduce, $client);
+                $checks['reflected_xss'] = new ReflectedXss($reproduce, $client);
+                $checks['local_file_inclusion'] = new LocalFileInclusion($reproduce, $client);
+            }
+
+            $registry = new Registry($checks);
 
             $engine = new Engine($pool, $registry);
+
+            if ($verify && !$input->getOption('yes')) {
+                $needsConfirmation = false;
+                foreach ($config->targets as $target) {
+                    if (!$target->staging) {
+                        $needsConfirmation = true;
+                        break;
+                    }
+                }
+
+                if ($needsConfirmation) {
+                    $confirmed = $this->getHelper('question')->ask(
+                        $input,
+                        $output,
+                        new ConfirmationQuestion(
+                            'Verification sends proof-of-concept requests to hosts that are not marked as staging. Continue? [y/N] ',
+                            false
+                        )
+                    );
+
+                    if (!$confirmed) {
+                        $output->writeln('<comment>Aborted - verification requires --yes to skip this prompt.</comment>');
+
+                        return 2;
+                    }
+                }
+            }
 
             if ($format === 'tui') {
                 $renderer = new TuiRenderer();

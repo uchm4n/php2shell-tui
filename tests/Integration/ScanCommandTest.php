@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Php2Scan\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\Yaml\Yaml;
 
 final class ScanCommandTest extends TestCase
@@ -94,6 +95,96 @@ final class ScanCommandTest extends TestCase
         } finally {
             self::killServer($process, $port);
         }
+    }
+
+    public function testTheInjectionCheckDoesNotRunWithoutVerify(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->injectionConfig($port),
+                '--format' => 'json',
+            ]);
+
+            self::assertSame(0, $code);
+            self::assertStringNotContainsString('sql_injection', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testVerifyRunsTheInjectionCheckAndFindsTheSqlInjection(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->injectionConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+                '--yes' => true,
+            ]);
+
+            self::assertSame(1, $code);
+            self::assertStringContainsString('sql_injection', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testVerifyAbortsWithExitCodeTwoWhenThePromptIsDeclined(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            $code = $this->runInteractive([
+                'command' => 'scan',
+                '--config' => $this->injectionConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+            ], ['n']);
+
+            self::assertSame(2, $code);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @param list<string> $answers
+     */
+    private function runInteractive(array $input, array $answers): int
+    {
+        $application = new Application();
+        $application->setAutoExit(false);
+        $application->setCatchExceptions(false);
+
+        $tester = new ApplicationTester($application);
+        $tester->setInputs($answers);
+
+        return $tester->run($input);
+    }
+
+    /**
+     * @return array{int, mixed}
+     */
+    private function fixture(): array
+    {
+        $port = self::findFreePort();
+
+        return [$port, self::startServer($port)];
+    }
+
+    private function injectionConfig(int $port): string
+    {
+        return $this->writeConfig([
+            'targets' => ['http://127.0.0.1:' . $port . '/search?q=test'],
+            'checks' => ['injection' => true],
+        ]);
     }
 
     /**
