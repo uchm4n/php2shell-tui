@@ -28,6 +28,7 @@ final class Crawler
         // A bare origin gets the trailing slash; a target that already carries
         // a path or a query string is used as given.
         $start = parse_url($target->url, PHP_URL_PATH) === null
+            && parse_url($target->url, PHP_URL_QUERY) === null
             ? rtrim($target->url, '/') . '/'
             : $target->url;
         $queue = [$start];

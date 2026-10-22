@@ -46,6 +46,20 @@ final class CrawlerTest extends TestCase
         self::assertSame(['q'], $parameters['https://example.com/search?q=test']);
     }
 
+    public function testATargetWithAQueryButNoPathIsCrawledAsGiven(): void
+    {
+        $pages = [
+            'https://example.com?x=1' => new Response(200, [], '<p>ok</p>'),
+        ];
+
+        $parameters = (new Crawler($this->client()))->parameters(
+            new Target('https://example.com?x=1'),
+            $pages
+        );
+
+        self::assertSame(['x'], $parameters['https://example.com?x=1'] ?? []);
+    }
+
     public function testItKeepsThePortWhenResolvingRelativeLinks(): void
     {
         $pages = [

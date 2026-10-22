@@ -91,7 +91,9 @@ abstract class ParameterProbe implements Check
 
             // Fetch the same URL twice. A page that differs from itself (a CSRF
             // token, a timestamp) would make any payload look like it changed the
-            // response, so such a URL cannot be probed reliably.
+            // response, so such a URL cannot be probed reliably. The whole body is
+            // compared, not just its length: a nonce can change bytes without
+            // changing the size.
             $again = $this->client->get($url, $target->requestHeaders());
 
             if ($again === null

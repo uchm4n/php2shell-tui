@@ -114,6 +114,22 @@ final class InjectionChecksTest extends TestCase
         self::assertSame([], $findings);
     }
 
+    public function testAPageWhoseBodyChangesWithoutChangingLengthIsNeverProbed(): void
+    {
+        // Same length, different bytes: only a full-body comparison catches it.
+        // The third response would confirm a finding if this URL were probed.
+        $client = $this->client([
+            new Response(200, [], 'token=aaaa'),
+            new Response(200, [], 'token=bbbb'),
+            new Response(500, [], 'SQL syntax error'),
+        ]);
+
+        $findings = (new SqlInjection($this->reproduce(), $client, $this->parameters()))
+            ->analyze(new Target('https://example.com'), []);
+
+        self::assertSame([], $findings);
+    }
+
     public function testThePayloadIsAppliedToEveryDiscoveredParameterName(): void
     {
         $client = $this->client([
