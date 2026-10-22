@@ -121,10 +121,12 @@ final class ConfigTest extends TestCase
     {
         $config = Config::fromFile(dirname(__DIR__, 2) . '/php2shell-tui.yaml');
 
-        self::assertCount(2, $config->targets);
-        self::assertSame('legacy.example.com', $config->targets[1]->vhost);
-        self::assertSame(['/wp-content/uploads'], $config->targets[1]->paths);
-        self::assertTrue($config->targets[1]->staging);
+        self::assertCount(5, $config->targets);
+        self::assertSame('https://example1.com', $config->targets[0]->url);
+        self::assertSame('https://legacy.example4.com', $config->targets[3]->url);
+        self::assertSame(['/wp-content/uploads'], $config->targets[3]->paths);
+        self::assertTrue($config->targets[3]->staging);
+        self::assertSame(['/admin', '/wp-admin', '/login'], $config->targets[4]->paths);
     }
 
     public function testItRejectsAMissingConfigFile(): void

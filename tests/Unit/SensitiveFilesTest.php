@@ -19,8 +19,8 @@ final class SensitiveFilesTest extends TestCase
     protected function setUp(): void
     {
         $this->check = new SensitiveFiles(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
     }
 

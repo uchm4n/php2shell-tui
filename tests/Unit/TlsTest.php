@@ -14,14 +14,14 @@ final class TlsTest extends TestCase
 {
     public function testAPlainHttpTargetIsSkipped(): void
     {
-        $check = new Tls(new Reproduce(__DIR__ . '/../../data/repro'));
+        $check = new Tls(new Reproduce(__DIR__ . '/../../src/Data/repro'));
 
         self::assertSame([], $check->analyze(new Target('http://example.com'), []));
     }
 
     public function testAnUnreachableTlsTargetProducesNoFindingRatherThanAnError(): void
     {
-        $check = new Tls(new Reproduce(__DIR__ . '/../../data/repro'));
+        $check = new Tls(new Reproduce(__DIR__ . '/../../src/Data/repro'));
         $findings = $check->analyze(new Target('https://127.0.0.1:1/'), []);
 
         self::assertSame([], $findings);
@@ -30,7 +30,7 @@ final class TlsTest extends TestCase
     public function testAnExpiredCertificateIsCritical(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400 * 365,
                 'validTo' => time() - 86400,
@@ -47,7 +47,7 @@ final class TlsTest extends TestCase
     public function testACertificateExpiringSoonIsMedium(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400,
                 'validTo' => time() + 86400 * 5,
@@ -63,7 +63,7 @@ final class TlsTest extends TestCase
     public function testAValidCertificateProducesNoFinding(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400,
                 'validTo' => time() + 86400 * 90,
@@ -77,7 +77,7 @@ final class TlsTest extends TestCase
     public function testACertificateIssuedForAnotherHostnameIsReported(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400,
                 'validTo' => time() + 86400 * 90,
@@ -96,7 +96,7 @@ final class TlsTest extends TestCase
     public function testASubjectAlternativeNameCoveringTheHostIsAccepted(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400,
                 'validTo' => time() + 86400 * 90,
@@ -111,7 +111,7 @@ final class TlsTest extends TestCase
     public function testTheOpenSslOnelineSubjectIsUnderstood(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400,
                 'validTo' => time() + 86400 * 90,
@@ -130,10 +130,10 @@ final class TlsTest extends TestCase
             'subject' => 'CN=*.example.com',
         ];
 
-        $check = new Tls(new Reproduce(__DIR__ . '/../../data/repro'), $certificate);
+        $check = new Tls(new Reproduce(__DIR__ . '/../../src/Data/repro'), $certificate);
         self::assertSame([], $check->analyze(new Target('https://shop.example.com'), []));
 
-        $check = new Tls(new Reproduce(__DIR__ . '/../../data/repro'), $certificate);
+        $check = new Tls(new Reproduce(__DIR__ . '/../../src/Data/repro'), $certificate);
         $findings = $check->analyze(new Target('https://example.com'), []);
         self::assertCount(1, $findings);
         self::assertSame('tls-hostname-mismatch', $findings[0]->id);
@@ -142,7 +142,7 @@ final class TlsTest extends TestCase
     public function testEveryFindingCarriesAReproduceStep(): void
     {
         $check = new Tls(
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): array => [
                 'validFrom' => time() - 86400 * 365,
                 'validTo' => time() - 86400,

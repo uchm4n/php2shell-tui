@@ -23,8 +23,8 @@ final class PhpChecksTest extends TestCase
     protected function setUp(): void
     {
         $this->target = new Target('https://legacy.example.com');
-        $this->reproduce = new Reproduce(__DIR__ . '/../../data/repro');
-        $this->db = new PhpVersionDb(__DIR__ . '/../../data/php-affected.json');
+        $this->reproduce = new Reproduce(__DIR__ . '/../../src/Data/repro');
+        $this->db = new PhpVersionDb(__DIR__ . '/../../src/Data/php-affected.json');
     }
 
     public function testItDetectsPhpFromThePoweredByHeader(): void

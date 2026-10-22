@@ -75,7 +75,7 @@ final class ScanCommand extends Command
             $verify = (bool) $input->getOption('verify');
 
             $root = dirname(__DIR__, 2);
-            $dataDir = $root . '/data';
+            $dataDir = $root . '/src/Data';
 
             $handler = new CurlMultiHandler([
                 'max_total_connections' => $config->concurrency,

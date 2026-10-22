@@ -14,7 +14,7 @@ final class DataTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->dataDir = __DIR__ . '/../../data';
+        $this->dataDir = __DIR__ . '/../../src/Data';
     }
 
     public function testWordlistsAreLoadedAndCleaned(): void

@@ -14,7 +14,7 @@ final class PhpVersionDbTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->db = new PhpVersionDb(__DIR__ . '/../../data/php-affected.json');
+        $this->db = new PhpVersionDb(__DIR__ . '/../../src/Data/php-affected.json');
     }
 
     public static function affectedVersions(): array
@@ -119,7 +119,7 @@ final class PhpVersionDbTest extends TestCase
 
     public function testItCanBeLoadedThroughTheAlias(): void
     {
-        $db = PhpVersionDb::fromFile(__DIR__ . '/../../data/php-affected.json');
+        $db = PhpVersionDb::fromFile(__DIR__ . '/../../src/Data/php-affected.json');
 
         self::assertSame('8.5.12', $db->newestKnown());
     }
@@ -127,6 +127,6 @@ final class PhpVersionDbTest extends TestCase
     public function testItFailsLoudlyOnAMissingDatabase(): void
     {
         $this->expectException(\RuntimeException::class);
-        new PhpVersionDb(__DIR__ . '/../../data/no-such-file.json');
+        new PhpVersionDb(__DIR__ . '/../../src/Data/no-such-file.json');
     }
 }

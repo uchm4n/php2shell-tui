@@ -17,7 +17,7 @@ final class FingerprintChecksTest extends TestCase
 {
     public function testWordpressIsIdentified(): void
     {
-        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../data/repro'));
+        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
         $findings = $check->analyze(new Target('https://example.com'), [
             '/wp-includes/version.php' => new Response(200, [], "<?php \$wp_version = '6.5.2';"),
         ]);
@@ -29,7 +29,7 @@ final class FingerprintChecksTest extends TestCase
 
     public function testTheBaselineBodyIsReadWithoutFataling(): void
     {
-        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../data/repro'));
+        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
         $findings = $check->analyze(new Target('https://example.com'), [
             '/' => new Response(200, [], '<html><link href="/wp-content/themes/x/style.css"></html>'),
         ]);
@@ -41,8 +41,8 @@ final class FingerprintChecksTest extends TestCase
     public function testAWebshellIsOnlyConfirmedWhenTheBodyHasAShellPrimitive(): void
     {
         $check = new WebshellIndicators(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
 
         $benign = $check->analyze(new Target('https://example.com'), [
@@ -60,8 +60,8 @@ final class FingerprintChecksTest extends TestCase
     public function testWebshellProbesCoverTheConfiguredUploadDirectories(): void
     {
         $check = new WebshellIndicators(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
 
         $paths = $check->paths(new Target('https://example.com', null, ['/wp-content/uploads']), null);
@@ -73,8 +73,8 @@ final class FingerprintChecksTest extends TestCase
     public function testAShellPrimitiveWithoutRequestInputIsNotAWebshell(): void
     {
         $check = new WebshellIndicators(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
 
         $findings = $check->analyze(new Target('https://example.com'), [
@@ -87,8 +87,8 @@ final class FingerprintChecksTest extends TestCase
     public function testAWebshellPathThatAnswers404IsNotAWebshell(): void
     {
         $check = new WebshellIndicators(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
 
         $findings = $check->analyze(new Target('https://example.com'), [
@@ -100,10 +100,10 @@ final class FingerprintChecksTest extends TestCase
 
     public function testEveryFindingCarriesAReproduceStep(): void
     {
-        $fingerprint = new AppFingerprint(new Reproduce(__DIR__ . '/../../data/repro'));
+        $fingerprint = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
         $webshell = new WebshellIndicators(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
         );
 
         $findings = array_merge(

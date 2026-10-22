@@ -17,7 +17,7 @@ final class SecurityHeadersTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->check = new SecurityHeaders(new Reproduce(__DIR__ . '/../../data/repro'));
+        $this->check = new SecurityHeaders(new Reproduce(__DIR__ . '/../../src/Data/repro'));
     }
 
     public function testAMissingHeaderIsReported(): void

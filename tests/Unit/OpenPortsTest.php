@@ -16,8 +16,8 @@ final class OpenPortsTest extends TestCase
     public function testAnExposedDatabasePortIsHighAndWebPortsAreNotReported(): void
     {
         $check = new OpenPorts(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): bool => in_array($port, [3306, 443], true),
         );
 
@@ -31,8 +31,8 @@ final class OpenPortsTest extends TestCase
     public function testEveryPortClosedProducesNoFinding(): void
     {
         $check = new OpenPorts(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): bool => false,
         );
 
@@ -42,8 +42,8 @@ final class OpenPortsTest extends TestCase
     public function testAnUnexpectedPortIsMedium(): void
     {
         $check = new OpenPorts(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): bool => $port === 8080,
         );
 
@@ -57,8 +57,8 @@ final class OpenPortsTest extends TestCase
     public function testEveryFindingCarriesAReproduceStep(): void
     {
         $check = new OpenPorts(
-            new Wordlists(__DIR__ . '/../../data'),
-            new Reproduce(__DIR__ . '/../../data/repro'),
+            new Wordlists(__DIR__ . '/../../src/Data'),
+            new Reproduce(__DIR__ . '/../../src/Data/repro'),
             static fn (string $host, int $port): bool => $port === 5432,
         );
 

@@ -64,7 +64,7 @@ final class InjectionChecksTest extends TestCase
 
     private function reproduce(): Reproduce
     {
-        return new Reproduce(__DIR__ . '/../../data/repro');
+        return new Reproduce(__DIR__ . '/../../src/Data/repro');
     }
 
     public function testSqlInjectionIsConfirmedWhenThePayloadChangesTheResponse(): void
