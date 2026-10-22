@@ -201,6 +201,7 @@ final class TuiRenderer
                     KeyCode::Down => 'j',
                     KeyCode::Up => 'k',
                     KeyCode::Enter => 'r',
+                    KeyCode::Esc => 'q',
                     default => '',
                 });
             }
@@ -227,8 +228,17 @@ final class TuiRenderer
     {
         $this->display->draw(GridWidget::default()
             ->direction(Direction::Vertical)
-            ->constraints(Constraint::length(self::PROGRESS_HEIGHT), Constraint::min(0))
-            ->widgets($this->progressPane(), $this->findingsPane()));
+            ->constraints(
+                Constraint::length(self::PROGRESS_HEIGHT),
+                Constraint::min(0),
+                Constraint::length(1)
+            )
+            ->widgets($this->progressPane(), $this->findingsPane(), $this->footer()));
+    }
+
+    private function footer(): ParagraphWidget
+    {
+        return ParagraphWidget::fromString(' q quit | j/k or arrows move | Enter expand ');
     }
 
     /**
@@ -351,7 +361,7 @@ final class TuiRenderer
      */
     private function findingsHeight(): int
     {
-        return max(1, $this->display->viewportArea()->height - self::PROGRESS_HEIGHT - 2);
+        return max(1, $this->display->viewportArea()->height - self::PROGRESS_HEIGHT - 3);
     }
 
     /**

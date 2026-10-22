@@ -27,6 +27,7 @@ use Php2Scan\Http\Client;
 use Php2Scan\Http\Pool;
 use Php2Scan\PhpVersionDb;
 use Php2Scan\Report\Report;
+use Php2Scan\ScanCancelled;
 use Php2Scan\Ui\PlainRenderer;
 use Php2Scan\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -146,19 +147,35 @@ final class ScanCommand extends Command
                 }
             }
 
+            $cancelled = false;
+
             if ($format === 'tui') {
                 $renderer = new TuiRenderer();
                 $renderer->start(array_map(static fn ($t): string => $t->label(), $config->targets));
 
                 try {
-                    $result = $engine->run($config, static function (string $label, string $phase, int $done, int $total) use ($renderer): void {
-                        $renderer->update($label, $phase, $done, $total);
-                        $renderer->pollKeys();
-                        $renderer->draw();
-                    });
+                    $renderer->draw();
+
+                    $result = $engine->run(
+                        $config,
+                        static function (string $label, string $phase, int $done, int $total) use ($renderer): void {
+                            $renderer->update($label, $phase, $done, $total);
+                            $renderer->pollKeys();
+                            $renderer->draw();
+                        },
+                        static function () use ($renderer): void {
+                            $renderer->pollKeys();
+
+                            if ($renderer->isQuitRequested()) {
+                                throw new ScanCancelled();
+                            }
+                        },
+                    );
 
                     $renderer->setFindings($result->findings);
                     $renderer->draw();
+                } catch (ScanCancelled) {
+                    $cancelled = true;
                 } finally {
                     // Puts the terminal back before the plain report is written,
                     // including when the scan throws or the user quits.
@@ -166,6 +183,12 @@ final class ScanCommand extends Command
                 }
             } else {
                 $result = $engine->run($config);
+            }
+
+            if ($cancelled) {
+                $this->note($output, 'Scan cancelled.');
+
+                return 130;
             }
 
             $report = new Report($result, $config);

@@ -18,7 +18,7 @@ final class SmokeTest extends TestCase
         $code = $application->run(new \Symfony\Component\Console\Input\ArrayInput(['--version' => true]), $output);
 
         self::assertSame(0, $code);
-        self::assertStringContainsString('php2scan', $output->fetch());
+        self::assertStringContainsString('php2shell-tui', $output->fetch());
     }
 
     public function testTheShippedExampleConfigParses(): void

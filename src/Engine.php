@@ -22,7 +22,7 @@ final class Engine
     ) {
     }
 
-    public function run(Config $config, ?callable $onProgress = null): ScanResult
+    public function run(Config $config, ?callable $onProgress = null, ?callable $onTick = null): ScanResult
     {
         $started = microtime(true);
 
@@ -44,6 +44,7 @@ final class Engine
         $baselines = $this->pool->run(
             $baselineRequests,
             $this->progress($onProgress, $labels, 'baseline', count($baselineRequests)),
+            $onTick,
         );
 
         $reachable = [];
@@ -103,6 +104,7 @@ final class Engine
         $responses = $this->pool->run(
             $requests,
             $this->progress($onProgress, $labels, 'probe', count($requests)),
+            $onTick,
         );
 
         // Phase 3 - analyse.

@@ -134,6 +134,27 @@ final class TuiRendererTest extends TestCase
         self::assertTrue($renderer->isQuitRequested());
     }
 
+    public function testTheFooterShowsTheQuitHint(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->draw();
+
+        self::assertStringContainsString('q quit', $backend->toString());
+    }
+
+    public function testTheEscKeyRequestsAQuit(): void
+    {
+        $events = new FakeEventProvider([CodedKeyEvent::new(KeyCode::Esc)]);
+        $renderer = new TuiRenderer(new DummyBackend(100, 30), $events);
+        $renderer->start(['a.example.com']);
+
+        $renderer->pollKeys();
+
+        self::assertTrue($renderer->isQuitRequested());
+    }
+
     public function testTheEnterKeyExpandsTheSelectedFinding(): void
     {
         $backend = new DummyBackend(100, 30);

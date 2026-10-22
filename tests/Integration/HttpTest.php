@@ -90,6 +90,32 @@ final class HttpTest extends TestCase
         self::assertLessThan(2.5, $elapsed, 'Three one-second requests should overlap, not queue.');
     }
 
+    public function testTheTickCallbackCanCancelAWait(): void
+    {
+        [$pool] = self::pool();
+
+        $base = sprintf('http://127.0.0.1:%d', self::$port);
+        $ticks = 0;
+        $started = microtime(true);
+
+        try {
+            $pool->run(
+                [['url' => $base . '/slow', 'headers' => []]],
+                null,
+                function () use (&$ticks): void {
+                    $ticks++;
+                    throw new \RuntimeException('cancelled');
+                }
+            );
+            self::fail('The tick callback should abort the wait.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('cancelled', $e->getMessage());
+        }
+
+        self::assertSame(1, $ticks);
+        self::assertLessThan(0.9, microtime(true) - $started, 'The wait must abort before the slow response arrives.');
+    }
+
     public function testThePoolReportsEverySettledRequest(): void
     {
         [$pool] = self::pool();

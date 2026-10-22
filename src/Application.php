@@ -9,7 +9,7 @@ use Symfony\Component\Console\Application as BaseApplication;
 
 final class Application extends BaseApplication
 {
-    public const NAME = 'php2scan';
+    public const NAME = 'php2shell-tui';
     public const VERSION = '0.0.1';
 
     public function __construct()
