@@ -112,7 +112,7 @@ final class ConfigTest extends TestCase
 
     public function testItLoadsTheShippedExampleConfig(): void
     {
-        $config = Config::fromFile(dirname(__DIR__, 2) . '/php2scan.yaml.example');
+        $config = Config::fromFile(dirname(__DIR__, 2) . '/php2scan.yaml');
 
         self::assertCount(2, $config->targets);
         self::assertSame('legacy.example.com', $config->targets[1]->vhost);

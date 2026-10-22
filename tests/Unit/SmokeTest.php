@@ -23,7 +23,7 @@ final class SmokeTest extends TestCase
 
     public function testTheShippedExampleConfigParses(): void
     {
-        $path = dirname(__DIR__, 2) . '/php2scan.yaml.example';
+        $path = dirname(__DIR__, 2) . '/php2scan.yaml';
         $config = (new \Symfony\Component\Yaml\Yaml())->parseFile($path);
 
         self::assertIsArray($config);

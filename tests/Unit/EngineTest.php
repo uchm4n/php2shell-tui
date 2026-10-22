@@ -254,6 +254,6 @@ final class EngineTest extends TestCase
             $byId[$check->id()] = $check;
         }
 
-        return new Engine($pool, $client, new Registry($byId));
+        return new Engine($pool, new Registry($byId));
     }
 }

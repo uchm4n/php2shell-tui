@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Php2Scan;
 
 use Php2Scan\Check\Registry;
-use Php2Scan\Http\Client;
 use Php2Scan\Http\Pool;
 use Psr\Http\Message\ResponseInterface;
 
@@ -19,7 +18,6 @@ final class Engine
 
     public function __construct(
         private readonly Pool $pool,
-        private readonly Client $client,
         private readonly Registry $registry,
     ) {
     }
