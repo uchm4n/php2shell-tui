@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json.schemastore.org/box.json",
+    "main": "bin/php2scan",
+    "output": "build/php2scan.phar",
+    "chmod": "0755",
+    "check-requirements": false,
+    "directories": [
+        "data"
+    ],
+    "force-autodiscovery": true,
+    "blacklist": [
+        "tests",
+        "reports",
+        "build",
+        "php2scan.yaml"
+    ]
+}
