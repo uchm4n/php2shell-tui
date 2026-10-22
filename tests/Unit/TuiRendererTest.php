@@ -105,14 +105,116 @@ final class TuiRendererTest extends TestCase
         self::assertStringContainsString('$ s', $backend->toString());
     }
 
-    public function testTheSKeyRequestsASave(): void
+    public function testTheCompletedViewShowsTheSummaryAndFinalStates(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+        ]);
+        $renderer->finish(['b.example.com'], [], 4.2);
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('complete in 4.2s', $frame);
+        self::assertStringContainsString('Findings (1)', $frame);
+        self::assertStringContainsString('1 unreachable', $frame);
+        self::assertStringContainsString('done', $frame);
+        self::assertStringContainsString('unreachable', $frame);
+    }
+
+    public function testTheCompletedViewShowsBlockedTargets(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->finish([], ['b.example.com'], 1.0);
+        $renderer->draw();
+
+        self::assertStringContainsString('1 blocked', $backend->toString());
+        self::assertStringContainsString('⊘ blocked', $backend->toString());
+    }
+
+    public function testTheMostSevereFindingIsSelectedFirst(): void
     {
         $renderer = new TuiRenderer(new DummyBackend(100, 30));
         $renderer->start(['a.example.com']);
+        $renderer->setFindings([
+            new Finding('low', 'Low', Severity::Low, 'a.example.com', 'e', 'x', ['s']),
+            new Finding('critical', 'Critical', Severity::Critical, 'a.example.com', 'e', 'x', ['s']),
+        ]);
 
-        self::assertFalse($renderer->saveRequested());
-        $renderer->handleKey('s');
-        self::assertTrue($renderer->saveRequested());
+        self::assertSame('critical', $renderer->selected()?->id);
+    }
+
+    public function testTheCompletedViewSaysNoFindings(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->finish([], [], 1.0);
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('No findings.', $frame);
+        self::assertStringNotContainsString('No findings yet.', $frame);
+    }
+
+    public function testTheErrorBannerKeepsTheFindingsVisible(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+        ]);
+        $renderer->fail(new \RuntimeException('report directory is not writable'));
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('failed', $frame);
+        self::assertStringContainsString('Error', $frame);
+        self::assertStringContainsString('report directory is not writable', $frame);
+        self::assertStringContainsString('Press q to exit', $frame);
+        self::assertStringContainsString('First', $frame);
+    }
+
+    public function testPollKeysReportsWhetherAnythingHappened(): void
+    {
+        $events = new FakeEventProvider([CharKeyEvent::new('j')]);
+        $renderer = new TuiRenderer(new DummyBackend(100, 30), $events);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+            new Finding('two', 'Second', Severity::Low, 'b.example.com', 'e', 'x', ['s']),
+        ]);
+
+        self::assertTrue($renderer->pollKeys());
+        self::assertFalse($renderer->pollKeys());
+    }
+
+    public function testWaitForQuitProcessesKeysAndReturnsOnQ(): void
+    {
+        $events = new FakeEventProvider([
+            CharKeyEvent::new('j'),
+            CharKeyEvent::new('q'),
+        ]);
+        $renderer = new TuiRenderer(new DummyBackend(100, 30), $events);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+            new Finding('two', 'Second', Severity::Low, 'b.example.com', 'e', 'x', ['s']),
+        ]);
+        $renderer->finish([], [], 1.0);
+
+        $renderer->waitForQuit();
+
+        self::assertTrue($renderer->isQuitRequested());
+        self::assertSame('two', $renderer->selected()?->id);
     }
 
     public function testTheTerminalEventsDriveTheKeyHandling(): void

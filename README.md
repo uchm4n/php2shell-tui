@@ -60,7 +60,10 @@ output:
 ./php2shell-tui scan --config other.yaml
 ```
 
-TUI keys: `q`, `Esc` or `Ctrl-C` quit (`j`/`k` or arrows move, `Enter` expands a finding).
+The results stay on screen when the scan finishes: the target table shows the final state of every
+host, the findings pane stays interactive, and a failure is shown in a red banner instead of
+dropping back to the shell. Press `q`, `Esc` or `Ctrl-C` to close the TUI (`j`/`k` or arrows move,
+`Enter` expands a finding). The report is still written to `report_dir`.
 
 Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 

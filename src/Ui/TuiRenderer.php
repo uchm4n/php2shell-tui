@@ -13,7 +13,9 @@ use PhpTui\Tui\Display\Backend;
 use PhpTui\Tui\Display\Display;
 use PhpTui\Tui\DisplayBuilder;
 use PhpTui\Tui\Extension\Core\Widget\BlockWidget;
+use PhpTui\Tui\Extension\Core\Widget\GaugeWidget;
 use PhpTui\Tui\Extension\Core\Widget\GridWidget;
+use PhpTui\Tui\Extension\Core\Widget\Paragraph\Wrap;
 use PhpTui\Tui\Extension\Core\Widget\ParagraphWidget;
 use PhpTui\Tui\Extension\Core\Widget\Table\TableCell;
 use PhpTui\Tui\Extension\Core\Widget\Table\TableRow;
@@ -25,6 +27,7 @@ use PhpTui\Tui\Text\Line;
 use PhpTui\Tui\Text\Span;
 use PhpTui\Tui\Text\Title;
 use PhpTui\Tui\Widget\Borders;
+use PhpTui\Tui\Widget\BorderType;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Term\Actions;
 use PhpTui\Term\Event\CharKeyEvent;
@@ -35,19 +38,16 @@ use PhpTui\Term\KeyModifiers;
 use PhpTui\Term\Terminal;
 
 /**
- * The live view: a progress pane on top and the findings below it.
+ * The live view: progress and a colored findings pane.
  *
- * The renderer never runs a loop of its own. The scan drives it: the engine
- * reports every settled request, and the caller redraws the frame from that
- * callback. A renderer without a terminal (a DummyBackend in the tests) still
- * renders, it just cannot read any keys.
+ * The renderer never runs a loop of its own during the scan. The scan drives
+ * it, and the caller redraws the frame from the progress callback. Once the
+ * scan ends, the caller keeps the renderer alive with waitForQuit().
  */
 final class TuiRenderer
 {
-    /**
-     * The height of the progress pane, in rows.
-     */
-    private const PROGRESS_HEIGHT = 6;
+    private const MIN_PROGRESS_HEIGHT = 6;
+    private const MAX_PROGRESS_HEIGHT = 12;
 
     /**
      * @var list<string> $targets
@@ -67,17 +67,22 @@ final class TuiRenderer
     private int $selected = 0;
     private bool $expanded = false;
     private bool $quit = false;
-    private bool $save = false;
+    private bool $complete = false;
+    private bool $stopped = false;
     private ?int $done = null;
     private ?int $total = null;
+    private int $unreachableCount = 0;
+    private int $unscannableCount = 0;
+    private float $duration = 0.0;
+    private ?string $error = null;
 
     private Display $display;
     private ?Terminal $terminal = null;
     private ?EventProvider $events = null;
 
     /**
-     * The event source is injectable so the key handling can be tested
-     * without a terminal; the real one reads the terminal created above.
+     * The event source is injectable so key handling can be tested without a
+     * terminal; the real one reads the terminal created above.
      */
     public function __construct(?Backend $backend = null, ?EventProvider $events = null)
     {
@@ -97,8 +102,18 @@ final class TuiRenderer
     {
         $this->targets = $targets;
         $this->phases = array_fill_keys($targets, 'pending');
+        $this->findings = [];
+        $this->selected = 0;
+        $this->expanded = false;
+        $this->quit = false;
+        $this->complete = false;
+        $this->stopped = false;
         $this->done = null;
         $this->total = null;
+        $this->unreachableCount = 0;
+        $this->unscannableCount = 0;
+        $this->duration = 0.0;
+        $this->error = null;
 
         if ($this->terminal === null) {
             return;
@@ -121,9 +136,48 @@ final class TuiRenderer
      */
     public function setFindings(array $findings): void
     {
+        usort(
+            $findings,
+            static fn (Finding $a, Finding $b): int => $b->severity->rank() <=> $a->severity->rank()
+        );
+
         $this->findings = $findings;
         $this->selected = 0;
         $this->expanded = false;
+    }
+
+    /**
+     * Marks the scan as complete and records the final target states.
+     *
+     * @param list<string> $unreachable
+     * @param list<string> $unscannable
+     */
+    public function finish(array $unreachable = [], array $unscannable = [], float $duration = 0.0): void
+    {
+        $this->complete = true;
+        $this->duration = $duration;
+        $this->unreachableCount = count($unreachable);
+        $this->unscannableCount = count($unscannable);
+
+        foreach ($this->targets as $target) {
+            $this->phases[$target] = 'done';
+        }
+
+        foreach ($unreachable as $target) {
+            $this->phases[$target] = 'unreachable';
+        }
+
+        foreach ($unscannable as $target) {
+            $this->phases[$target] = 'blocked';
+        }
+    }
+
+    /**
+     * Keeps an in-session failure on screen instead of tearing the TUI down.
+     */
+    public function fail(\Throwable $error): void
+    {
+        $this->error = $error->getMessage() !== '' ? $error->getMessage() : $error::class;
     }
 
     public function selected(): ?Finding
@@ -163,29 +217,27 @@ final class TuiRenderer
             'j' => $this->move(1),
             'k' => $this->move(-1),
             'r', "\n" => $this->toggleExpanded(),
-            's' => $this->save = true,
             default => null,
         };
-    }
-
-    public function saveRequested(): bool
-    {
-        return $this->save;
     }
 
     /**
      * Drains the pending terminal events.
      *
-     * The event source is non-blocking, and a renderer without one (the
-     * DummyBackend in tests) has nothing to drain, so this never waits.
+     * Returns true when at least one event was handled, so the caller can
+     * redraw only when the frame actually changed.
      */
-    public function pollKeys(): void
+    public function pollKeys(): bool
     {
         if ($this->events === null) {
-            return;
+            return false;
         }
 
+        $handled = false;
+
         while (($event = $this->events->next()) !== null) {
+            $handled = true;
+
             if ($event instanceof CharKeyEvent) {
                 if (($event->modifiers & KeyModifiers::CONTROL) !== 0 && $event->char === 'c') {
                     $this->quit = true;
@@ -205,6 +257,32 @@ final class TuiRenderer
                     default => '',
                 });
             }
+        }
+
+        return $handled;
+    }
+
+    /**
+     * Keeps the results (or an error) on screen until the operator quits.
+     */
+    public function waitForQuit(): void
+    {
+        if ($this->events === null) {
+            return;
+        }
+
+        $this->draw();
+
+        while (!$this->quit) {
+            if ($this->pollKeys()) {
+                $this->draw();
+            }
+
+            if ($this->quit) {
+                break;
+            }
+
+            usleep(50_000);
         }
     }
 
@@ -226,65 +304,143 @@ final class TuiRenderer
      */
     public function renderFrame(): void
     {
+        $constraints = [Constraint::length($this->progressHeight())];
+        $widgets = [$this->progressPane()];
+
+        if ($this->error !== null) {
+            $constraints[] = Constraint::length($this->errorHeight());
+            $widgets[] = $this->errorPane();
+        }
+
+        $constraints[] = Constraint::min(0);
+        $constraints[] = Constraint::length(1);
+        $widgets[] = $this->findingsPane();
+        $widgets[] = $this->footer();
+
         $this->display->draw(GridWidget::default()
             ->direction(Direction::Vertical)
-            ->constraints(
-                Constraint::length(self::PROGRESS_HEIGHT),
-                Constraint::min(0),
-                Constraint::length(1)
-            )
-            ->widgets($this->progressPane(), $this->findingsPane(), $this->footer()));
+            ->constraints(...$constraints)
+            ->widgets(...$widgets));
     }
 
     private function footer(): ParagraphWidget
     {
-        return ParagraphWidget::fromString(' q quit | j/k or arrows move | Enter expand ');
+        $key = Style::default()->fg(AnsiColor::LightCyan)->addModifier(Modifier::BOLD);
+        $dim = Style::default()->fg(AnsiColor::Gray);
+
+        return ParagraphWidget::fromLines(Line::fromSpans(
+            Span::styled(' q ', $key),
+            Span::styled('quit', $dim),
+            Span::styled('  |  ', $dim),
+            Span::styled('j/k', $key),
+            Span::styled(' or ', $dim),
+            Span::styled('↑/↓', $key),
+            Span::styled(' move', $dim),
+            Span::styled('  |  ', $dim),
+            Span::styled('Enter', $key),
+            Span::styled(' expand', $dim),
+        ));
     }
 
     /**
-     * Puts the terminal back the way it was found.
+     * Puts the terminal back the way it was found. Safe to call more than once.
      */
     public function stop(): void
     {
-        if ($this->terminal === null) {
+        if ($this->terminal === null || $this->stopped) {
             return;
         }
 
+        $this->stopped = true;
         $this->terminal->disableRawMode();
         $this->terminal->queue(Actions::cursorShow(), Actions::alternateScreenDisable());
         $this->terminal->flush();
     }
 
+    private function progressHeight(): int
+    {
+        return max(
+            self::MIN_PROGRESS_HEIGHT,
+            min(self::MAX_PROGRESS_HEIGHT, count($this->targets) + 4)
+        );
+    }
+
     private function progressPane(): BlockWidget
     {
-        $rows = [];
+        $header = TableRow::fromCells(
+            self::cell('Target', self::headerStyle()),
+            self::cell('Status', self::headerStyle()),
+        );
 
+        $rows = [];
         foreach ($this->targets as $target) {
+            $phase = $this->phases[$target] ?? 'pending';
             $rows[] = TableRow::fromCells(
-                TableCell::fromString($target),
-                TableCell::fromString($this->phases[$target] ?? 'pending'),
+                self::cell($target, Style::default()->fg($this->targetColor($phase))),
+                self::cell($this->phaseLabel($phase), $this->phaseStyle($phase)),
             );
         }
 
         $table = TableWidget::default()
+            ->header($header)
             ->rows(...$rows)
-            ->widths(Constraint::percentage(60), Constraint::percentage(40));
+            ->widths(Constraint::percentage(55), Constraint::percentage(45));
+        $table->columnSpacing = 1;
+
+        $inner = GridWidget::default()
+            ->direction(Direction::Vertical)
+            ->constraints(Constraint::length(1), Constraint::min(0))
+            ->widgets($this->gauge(), $table);
 
         return BlockWidget::default()
             ->borders(Borders::ALL)
-            ->titles(Title::fromString($this->progressTitle()))
-            ->widget($table);
+            ->borderType(BorderType::Rounded)
+            ->borderStyle(Style::default()->fg($this->progressColor()))
+            ->titleStyle(Style::default()->fg($this->progressColor())->addModifier(Modifier::BOLD))
+            ->titles(Title::fromString(' ' . $this->progressTitle() . ' '))
+            ->widget($inner);
+    }
+
+    private function gauge(): GaugeWidget
+    {
+        $ratio = $this->total !== null && $this->total > 0
+            ? ($this->done ?? 0) / $this->total
+            : 0.0;
+
+        if ($this->complete) {
+            $ratio = 1.0;
+        }
+
+        $ratio = max(0.0, min(1.0, $ratio));
+
+        $label = $this->total === null && !$this->complete
+            ? 'waiting'
+            : sprintf('%d%%', (int) round($ratio * 100));
+
+        return GaugeWidget::default()
+            ->ratio($ratio)
+            ->label(Span::styled(
+                $label,
+                Style::default()->fg(AnsiColor::White)->addModifier(Modifier::BOLD)
+            ))
+            ->style(Style::default()->fg($this->progressColor())->bg(AnsiColor::DarkGray));
     }
 
     private function progressTitle(): string
     {
-        $title = 'PHP2Shell Scan';
-
-        if ($this->total !== null) {
-            $title .= sprintf(' — %d/%d', $this->done ?? 0, $this->total);
+        if ($this->error !== null) {
+            return 'PHP2Shell Scan — failed';
         }
 
-        return $title;
+        if ($this->complete) {
+            return sprintf('PHP2Shell Scan — complete in %.1fs', $this->duration);
+        }
+
+        if ($this->total !== null) {
+            return sprintf('PHP2Shell Scan — %d/%d', $this->done ?? 0, $this->total);
+        }
+
+        return 'PHP2Shell Scan';
     }
 
     private function findingsPane(): BlockWidget
@@ -306,18 +462,50 @@ final class TuiRenderer
         }
 
         if ($lines === []) {
-            $lines[] = Line::fromString('No findings yet.');
+            $lines[] = Line::fromSpans(Span::styled(
+                $this->complete || $this->error !== null ? 'No findings.' : 'No findings yet.',
+                Style::default()->fg(AnsiColor::Gray)
+            ));
         }
 
-        $paragraph = ParagraphWidget::fromLines(...$lines);
+        $paragraph = ParagraphWidget::fromLines(...$lines)->wrap(Wrap::WordTrimmed);
 
         // Keep the selected finding in view.
         $paragraph->scroll = [max(0, $selectedStart - $this->findingsHeight() + 1), 0];
 
         return BlockWidget::default()
             ->borders(Borders::ALL)
-            ->titles(Title::fromString($this->findingsTitle()))
+            ->borderType(BorderType::Rounded)
+            ->borderStyle(Style::default()->fg($this->accentColor()))
+            ->titleStyle(Style::default()->fg($this->accentColor())->addModifier(Modifier::BOLD))
+            ->titles(Title::fromString(' ' . $this->findingsTitle() . ' '))
             ->widget($paragraph);
+    }
+
+    private function errorPane(): BlockWidget
+    {
+        $lines = [];
+        foreach (preg_split('/\R/', $this->error ?? '') ?: [] as $line) {
+            $lines[] = Line::fromSpans(Span::styled(
+                $line,
+                Style::default()->fg(AnsiColor::LightRed)->addModifier(Modifier::BOLD)
+            ));
+        }
+
+        $lines[] = Line::fromString('');
+        $lines[] = Line::fromSpans(
+            Span::styled('Press ', Style::default()->fg(AnsiColor::Gray)),
+            Span::styled('q', Style::default()->fg(AnsiColor::LightCyan)->addModifier(Modifier::BOLD)),
+            Span::styled(' to exit.', Style::default()->fg(AnsiColor::Gray)),
+        );
+
+        return BlockWidget::default()
+            ->borders(Borders::ALL)
+            ->borderType(BorderType::Rounded)
+            ->borderStyle(Style::default()->fg(AnsiColor::Red)->addModifier(Modifier::BOLD))
+            ->titleStyle(Style::default()->fg(AnsiColor::LightRed)->addModifier(Modifier::BOLD))
+            ->titles(Title::fromString(' Error '))
+            ->widget(ParagraphWidget::fromLines(...$lines)->wrap(Wrap::WordTrimmed));
     }
 
     /**
@@ -325,26 +513,45 @@ final class TuiRenderer
      */
     private function findingLines(Finding $finding, bool $isSelected): array
     {
-        $style = Style::default()->fg(self::color($finding->severity));
-        if ($isSelected) {
-            $style = $style->addModifier(Modifier::BOLD);
-        }
+        $severity = self::color($finding->severity);
+        $markerStyle = Style::default()
+            ->fg($isSelected ? AnsiColor::LightCyan : AnsiColor::DarkGray)
+            ->addModifier(Modifier::BOLD);
+        $labelStyle = Style::default()
+            ->fg($severity)
+            ->addModifier(Modifier::BOLD);
+        $titleStyle = Style::default()->fg(AnsiColor::White);
 
-        $marker = $isSelected ? '>' : ' ';
+        if ($isSelected) {
+            $labelStyle->addModifier(Modifier::UNDERLINED);
+            $titleStyle->addModifier(Modifier::BOLD);
+        }
 
         $lines = [
             Line::fromSpans(
-                Span::styled($marker . ' ', $style),
-                Span::styled(Theme::label($finding->severity), $style),
-                Span::fromString('  ' . $finding->title . ' — ' . $finding->target),
+                Span::styled($isSelected ? '▶ ' : '  ', $markerStyle),
+                Span::styled(Theme::label($finding->severity), $labelStyle),
+                Span::styled('  ' . $finding->title, $titleStyle),
+                Span::styled(' — ' . $finding->target, Style::default()->fg(AnsiColor::Gray)),
             ),
-            Line::fromString('    ' . $finding->evidence),
-            Line::fromString('    How to exploit: ' . $finding->exploit),
+            Line::fromSpans(
+                Span::styled('    ', Style::default()),
+                Span::styled($finding->evidence, Style::default()->fg(AnsiColor::Gray)),
+            ),
+            Line::fromSpans(
+                Span::styled('    How to exploit: ', Style::default()->fg(AnsiColor::LightYellow)),
+                Span::styled($finding->exploit, Style::default()->fg(AnsiColor::White)),
+            ),
         ];
 
         if ($this->expanded && $isSelected) {
             foreach ($finding->reproduce as $step) {
-                $lines[] = Line::fromString('    $ ' . $step);
+                foreach (preg_split('/\R/', $step) ?: [] as $line) {
+                    $lines[] = Line::fromSpans(
+                        Span::styled('    $ ', Style::default()->fg(AnsiColor::Green)->addModifier(Modifier::BOLD)),
+                        Span::styled($line, Style::default()->fg(AnsiColor::LightGreen)),
+                    );
+                }
             }
         }
 
@@ -353,7 +560,109 @@ final class TuiRenderer
 
     private function findingsTitle(): string
     {
-        return sprintf('Findings (%d)', count($this->findings));
+        $title = sprintf('Findings (%d)', count($this->findings));
+
+        if ($this->complete || $this->error !== null) {
+            if ($this->unreachableCount > 0) {
+                $title .= sprintf(' · %d unreachable', $this->unreachableCount);
+            }
+
+            if ($this->unscannableCount > 0) {
+                $title .= sprintf(' · %d blocked', $this->unscannableCount);
+            }
+        }
+
+        return $title;
+    }
+
+    /**
+     * The color of the frame's accent, based on the highest severity found.
+     */
+    private function accentColor(): AnsiColor
+    {
+        if ($this->error !== null) {
+            return AnsiColor::Red;
+        }
+
+        $highest = null;
+        foreach ($this->findings as $finding) {
+            if ($highest === null || $finding->severity->rank() > $highest->rank()) {
+                $highest = $finding->severity;
+            }
+        }
+
+        if ($highest !== null) {
+            return self::color($highest);
+        }
+
+        return $this->complete ? AnsiColor::Green : AnsiColor::LightBlue;
+    }
+
+    private function progressColor(): AnsiColor
+    {
+        if ($this->error !== null) {
+            return AnsiColor::Red;
+        }
+
+        return $this->complete ? AnsiColor::Green : AnsiColor::LightBlue;
+    }
+
+    private function phaseLabel(string $phase): string
+    {
+        return match ($phase) {
+            'pending' => '○ pending',
+            'baseline' => '◔ baseline',
+            'probe' => '◑ probe',
+            'analyse' => '◕ analyse',
+            'done' => '✓ done',
+            'unreachable' => '✗ unreachable',
+            'blocked' => '⊘ blocked',
+            default => $phase,
+        };
+    }
+
+    private function phaseColor(string $phase): AnsiColor
+    {
+        return match ($phase) {
+            'pending' => AnsiColor::DarkGray,
+            'baseline' => AnsiColor::Cyan,
+            'probe' => AnsiColor::LightBlue,
+            'analyse' => AnsiColor::Yellow,
+            'done' => AnsiColor::Green,
+            'unreachable' => AnsiColor::Red,
+            'blocked' => AnsiColor::Magenta,
+            default => AnsiColor::Gray,
+        };
+    }
+
+    private function phaseStyle(string $phase): Style
+    {
+        $style = Style::default()->fg($this->phaseColor($phase));
+
+        return $phase === 'pending'
+            ? $style->addModifier(Modifier::DIM)
+            : $style->addModifier(Modifier::BOLD);
+    }
+
+    private function targetColor(string $phase): AnsiColor
+    {
+        return match ($phase) {
+            'pending' => AnsiColor::DarkGray,
+            'unreachable' => AnsiColor::Red,
+            'blocked' => AnsiColor::Magenta,
+            'done' => AnsiColor::White,
+            default => AnsiColor::LightBlue,
+        };
+    }
+
+    private static function headerStyle(): Style
+    {
+        return Style::default()->fg(AnsiColor::Gray)->addModifier(Modifier::BOLD);
+    }
+
+    private static function cell(string $text, Style $style): TableCell
+    {
+        return TableCell::fromLine(Line::fromSpans(Span::styled($text, $style)));
     }
 
     /**
@@ -361,7 +670,27 @@ final class TuiRenderer
      */
     private function findingsHeight(): int
     {
-        return max(1, $this->display->viewportArea()->height - self::PROGRESS_HEIGHT - 3);
+        return max(1, $this->display->viewportArea()->height - $this->progressHeight() - $this->errorHeight() - 3);
+    }
+
+    /**
+     * Size the error pane to its message: borders, message rows, a blank
+     * separator and the quit hint.
+     */
+    private function errorHeight(): int
+    {
+        if ($this->error === null) {
+            return 0;
+        }
+
+        $width = max(1, $this->display->viewportArea()->width - 2);
+        $rows = 0;
+
+        foreach (preg_split('/\R/', $this->error) ?: [] as $line) {
+            $rows += max(1, (int) ceil(mb_strlen($line) / $width));
+        }
+
+        return max(5, min(9, $rows + 4));
     }
 
     /**

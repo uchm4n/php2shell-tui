@@ -28,6 +28,7 @@ use Php2ShellTui\Http\Pool;
 use Php2ShellTui\PhpVersionDb;
 use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
+use Php2ShellTui\ScanResult;
 use Php2ShellTui\Ui\PlainRenderer;
 use Php2ShellTui\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -147,13 +148,14 @@ final class ScanCommand extends Command
                 }
             }
 
-            $cancelled = false;
-
             if ($format === 'tui') {
                 $renderer = new TuiRenderer();
-                $renderer->start(array_map(static fn ($t): string => $t->label(), $config->targets));
+                $result = null;
+                $error = null;
+                $cancelled = false;
 
                 try {
+                    $renderer->start(array_map(static fn ($t): string => $t->label(), $config->targets));
                     $renderer->draw();
 
                     $result = $engine->run(
@@ -173,55 +175,99 @@ final class ScanCommand extends Command
                     );
 
                     $renderer->setFindings($result->findings);
-                    $renderer->draw();
+                    $renderer->finish(
+                        array_column($result->unreachable, 'target'),
+                        array_column($result->unscannable, 'target'),
+                        $result->duration,
+                    );
+
+                    $report = new Report($result, $config);
+                    $rendered = $report->render($format);
+                    $path = $this->writeReport($report, $format, $rendered, $input, $config);
+
+                    // Stay here until the operator quits, so the results are read
+                    // inside the TUI instead of being dumped to the shell.
+                    $renderer->waitForQuit();
                 } catch (ScanCancelled) {
                     $cancelled = true;
+                } catch (\Throwable $e) {
+                    $error = $e;
+
+                    try {
+                        $renderer->fail($e);
+                        $renderer->waitForQuit();
+                    } catch (\Throwable) {
+                        // The renderer itself is unusable; let the outer handler
+                        // restore the terminal and print the original failure.
+                        throw $e;
+                    }
                 } finally {
-                    // Puts the terminal back before the plain report is written,
-                    // including when the scan throws or the user quits.
                     $renderer->stop();
                 }
-            } else {
-                $result = $engine->run($config);
+
+                if ($cancelled) {
+                    $this->note($output, 'Scan cancelled.');
+
+                    return 130;
+                }
+
+                if ($error !== null) {
+                    $this->note($output, 'Scan failed: ' . $error->getMessage());
+
+                    return 2;
+                }
+
+                $this->note($output, sprintf('Report written to %s', $path));
+
+                return $this->exitCode($result, $config);
             }
 
-            if ($cancelled) {
-                $this->note($output, 'Scan cancelled.');
-
-                return 130;
-            }
-
+            $result = $engine->run($config);
             $report = new Report($result, $config);
             $rendered = $report->render($format);
 
             (new PlainRenderer())->render($rendered, $output);
 
-            $directory = (string) ($input->getOption('output-dir') ?: $config->reportDir);
-            if (!is_dir($directory) && !@mkdir($directory, 0o755, true) && !is_dir($directory)) {
-                throw new \RuntimeException(sprintf('Cannot create the report directory "%s".', $directory));
-            }
-
-            $path = rtrim($directory, '/') . '/' . $report->filename($format);
-            if (file_put_contents($path, $rendered) === false) {
-                throw new \RuntimeException(sprintf('Cannot write the report to "%s".', $path));
-            }
-
+            $path = $this->writeReport($report, $format, $rendered, $input, $config);
             $this->note($output, sprintf('Report written to %s', $path));
 
-            $hasFindings = false;
-            foreach ($result->findings as $finding) {
-                if ($finding->severity->atLeast($config->minSeverity)) {
-                    $hasFindings = true;
-                    break;
-                }
-            }
-
-            return $hasFindings ? 1 : 0;
+            return $this->exitCode($result, $config);
         } catch (\Throwable $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return 2;
         }
+    }
+
+    private function writeReport(
+        Report $report,
+        string $format,
+        string $rendered,
+        InputInterface $input,
+        Config $config
+    ): string {
+        $directory = (string) ($input->getOption('output-dir') ?: $config->reportDir);
+        if (!is_dir($directory) && !@mkdir($directory, 0o755, true) && !is_dir($directory)) {
+            throw new \RuntimeException(sprintf('Cannot create the report directory "%s".', $directory));
+        }
+
+        $path = rtrim($directory, '/') . '/' . $report->filename($format);
+        if (file_put_contents($path, $rendered) === false) {
+            throw new \RuntimeException(sprintf('Cannot write the report to "%s".', $path));
+        }
+
+        return $path;
+    }
+
+    private function exitCode(ScanResult $result, Config $config): int
+    {
+        foreach ($result->findings as $finding) {
+            if ($finding->severity->atLeast($config->minSeverity)) {
+                return 1;
+            }
+        }
+
+        return 0;
     }
 
     /**
