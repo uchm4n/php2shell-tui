@@ -10,7 +10,7 @@ use Symfony\Component\Console\Application as BaseApplication;
 final class Application extends BaseApplication
 {
     public const NAME = 'php2scan';
-    public const VERSION = '1.0.0';
+    public const VERSION = '0.0.1';
 
     public function __construct()
     {
