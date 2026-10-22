@@ -1,0 +1,10 @@
+/vendor/
+/reports/
+/tmp/*
+!/tmp/.gitkeep
+/.idea/
+/.phpunit.cache/
+/.phpunit.result.cache
+.DS_Store
+.opencode/
+.superpowers/
