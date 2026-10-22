@@ -1,0 +1,11 @@
+{
+    "advisory": "PHP2Shell",
+    "cves": ["CVE-2026-109618", "CVE-2026-109619"],
+    "fixed": {
+        "8.2": "8.2.35",
+        "8.3": "8.3.36",
+        "8.4": "8.4.27",
+        "8.5": "8.5.12"
+    },
+    "note": "All releases before the first fixed release of their branch are affected. Branches below 8.2 are end-of-life and have no fix."
+}
