@@ -1,4 +1,5 @@
 /vendor/
+/build/
 /reports/
 /.idea/
 /.phpunit.cache/
