@@ -2,34 +2,34 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Command;
+namespace Php2ShellTui\Command;
 
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
-use Php2Scan\Check\AppFingerprint;
-use Php2Scan\Check\LocalFileInclusion;
-use Php2Scan\Check\OpenPorts;
-use Php2Scan\Check\PhpDetection;
-use Php2Scan\Check\PhpVersion;
-use Php2Scan\Check\ReflectedXss;
-use Php2Scan\Check\Registry;
-use Php2Scan\Check\SecurityHeaders;
-use Php2Scan\Check\SensitiveFiles;
-use Php2Scan\Check\SqlInjection;
-use Php2Scan\Check\Tls;
-use Php2Scan\Check\WebshellIndicators;
-use Php2Scan\Config;
-use Php2Scan\Data\Reproduce;
-use Php2Scan\Data\Wordlists;
-use Php2Scan\Engine;
-use Php2Scan\Http\Client;
-use Php2Scan\Http\Pool;
-use Php2Scan\PhpVersionDb;
-use Php2Scan\Report\Report;
-use Php2Scan\ScanCancelled;
-use Php2Scan\Ui\PlainRenderer;
-use Php2Scan\Ui\TuiRenderer;
+use Php2ShellTui\Check\AppFingerprint;
+use Php2ShellTui\Check\LocalFileInclusion;
+use Php2ShellTui\Check\OpenPorts;
+use Php2ShellTui\Check\PhpDetection;
+use Php2ShellTui\Check\PhpVersion;
+use Php2ShellTui\Check\ReflectedXss;
+use Php2ShellTui\Check\Registry;
+use Php2ShellTui\Check\SecurityHeaders;
+use Php2ShellTui\Check\SensitiveFiles;
+use Php2ShellTui\Check\SqlInjection;
+use Php2ShellTui\Check\Tls;
+use Php2ShellTui\Check\WebshellIndicators;
+use Php2ShellTui\Config;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Data\Wordlists;
+use Php2ShellTui\Engine;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Http\Pool;
+use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Report\Report;
+use Php2ShellTui\ScanCancelled;
+use Php2ShellTui\Ui\PlainRenderer;
+use Php2ShellTui\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -44,7 +44,7 @@ final class ScanCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to the configuration file', 'php2scan.yaml')
+            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to the configuration file', 'php2shell-tui.yaml')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format: tui, text, json, markdown', '')
             ->addOption('no-tui', null, InputOption::VALUE_NONE, 'Never use the interactive interface')
             ->addOption('verify', null, InputOption::VALUE_NONE, 'Run the proof-of-concept requests')

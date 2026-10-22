@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\Application;
-use Php2Scan\Config;
-use Php2Scan\Severity;
+use Php2ShellTui\Application;
+use Php2ShellTui\Config;
+use Php2ShellTui\Severity;
 use PHPUnit\Framework\TestCase;
 
 final class ConfigTest extends TestCase
@@ -119,7 +119,7 @@ final class ConfigTest extends TestCase
 
     public function testItLoadsTheShippedExampleConfig(): void
     {
-        $config = Config::fromFile(dirname(__DIR__, 2) . '/php2scan.yaml');
+        $config = Config::fromFile(dirname(__DIR__, 2) . '/php2shell-tui.yaml');
 
         self::assertCount(2, $config->targets);
         self::assertSame('legacy.example.com', $config->targets[1]->vhost);

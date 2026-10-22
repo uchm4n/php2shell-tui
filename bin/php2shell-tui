@@ -9,4 +9,4 @@ error_reporting(E_ALL & ~E_DEPRECATED);
 
 require __DIR__ . '/../vendor/autoload.php';
 
-exit((new Php2Scan\Application())->run());
+exit((new Php2ShellTui\Application())->run());

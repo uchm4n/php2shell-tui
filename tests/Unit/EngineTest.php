@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Exception\ConnectException;
@@ -12,15 +12,15 @@ use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
-use Php2Scan\Check\Check;
-use Php2Scan\Check\Registry;
-use Php2Scan\Config;
-use Php2Scan\Engine;
-use Php2Scan\Finding;
-use Php2Scan\Http\Client;
-use Php2Scan\Http\Pool;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Check\Check;
+use Php2ShellTui\Check\Registry;
+use Php2ShellTui\Config;
+use Php2ShellTui\Engine;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Http\Pool;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 

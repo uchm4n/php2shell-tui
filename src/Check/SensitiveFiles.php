@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Check;
+namespace Php2ShellTui\Check;
 
-use Php2Scan\Data\Reproduce;
-use Php2Scan\Data\Wordlists;
-use Php2Scan\Finding;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Data\Wordlists;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
 
 final class SensitiveFiles implements Check

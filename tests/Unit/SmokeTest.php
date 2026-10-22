@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 
@@ -10,7 +10,7 @@ final class SmokeTest extends TestCase
 {
     public function testTheConsoleApplicationRunsAndReportsItsVersion(): void
     {
-        $application = new \Php2Scan\Application();
+        $application = new \Php2ShellTui\Application();
         $application->setAutoExit(false);
         $application->setCatchExceptions(false);
 
@@ -23,7 +23,7 @@ final class SmokeTest extends TestCase
 
     public function testTheShippedExampleConfigParses(): void
     {
-        $path = dirname(__DIR__, 2) . '/php2scan.yaml';
+        $path = dirname(__DIR__, 2) . '/php2shell-tui.yaml';
         $config = (new \Symfony\Component\Yaml\Yaml())->parseFile($path);
 
         self::assertIsArray($config);

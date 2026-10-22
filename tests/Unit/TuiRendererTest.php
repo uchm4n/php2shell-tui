@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\Finding;
-use Php2Scan\Severity;
-use Php2Scan\Tests\Fixture\FakeEventProvider;
-use Php2Scan\Ui\TuiRenderer;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Tests\Fixture\FakeEventProvider;
+use Php2ShellTui\Ui\TuiRenderer;
 use PHPUnit\Framework\TestCase;
 use PhpTui\Term\Event\CharKeyEvent;
 use PhpTui\Term\Event\CodedKeyEvent;

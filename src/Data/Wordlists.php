@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Data;
+namespace Php2ShellTui\Data;
 
 final class Wordlists
 {

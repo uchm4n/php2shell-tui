@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Crawler;
+namespace Php2ShellTui\Crawler;
 
-use Php2Scan\Http\Client;
-use Php2Scan\Target;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\DomCrawler\Crawler as DomCrawler;
 

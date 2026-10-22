@@ -5,7 +5,7 @@
          colors="true"
          cacheDirectory=".phpunit.cache">
     <testsuites>
-        <testsuite name="php2scan">
+        <testsuite name="php2shell-tui">
             <directory>tests</directory>
         </testsuite>
     </testsuites>

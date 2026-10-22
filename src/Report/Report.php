@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Report;
+namespace Php2ShellTui\Report;
 
-use Php2Scan\Config;
-use Php2Scan\Finding;
-use Php2Scan\ScanResult;
-use Php2Scan\Severity;
+use Php2ShellTui\Config;
+use Php2ShellTui\Finding;
+use Php2ShellTui\ScanResult;
+use Php2ShellTui\Severity;
 
 final class Report
 {
@@ -35,7 +35,7 @@ final class Report
             default => 'txt',
         };
 
-        return sprintf('php2scan-%s.%s', $now->format('Ymd-His'), $extension);
+        return sprintf('php2shell-tui-%s.%s', $now->format('Ymd-His'), $extension);
     }
 
     /**
@@ -55,7 +55,7 @@ final class Report
     public function text(): string
     {
         $lines = [];
-        $lines[] = sprintf('php2scan report — %s', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
+        $lines[] = sprintf('php2shell-tui report — %s', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
         $lines[] = '';
 
         $reportable = $this->reportable();
@@ -130,7 +130,7 @@ final class Report
     public function markdown(): string
     {
         $lines = [];
-        $lines[] = '# php2scan report';
+        $lines[] = '# php2shell-tui report';
         $lines[] = '';
         $lines[] = sprintf('Generated %s.', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
         $lines[] = '';

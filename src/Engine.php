@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan;
+namespace Php2ShellTui;
 
-use Php2Scan\Check\Registry;
-use Php2Scan\Http\Pool;
+use Php2ShellTui\Check\Registry;
+use Php2ShellTui\Http\Pool;
 use Psr\Http\Message\ResponseInterface;
 
 final class Engine

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\PhpVersionDb;
+use Php2ShellTui\PhpVersionDb;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

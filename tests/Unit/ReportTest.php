@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\Config;
-use Php2Scan\Finding;
-use Php2Scan\Report\Report;
-use Php2Scan\ScanResult;
-use Php2Scan\Severity;
+use Php2ShellTui\Config;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Report\Report;
+use Php2ShellTui\ScanResult;
+use Php2ShellTui\Severity;
 use PHPUnit\Framework\TestCase;
 
 final class ReportTest extends TestCase

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\Severity;
+use Php2ShellTui\Severity;
 use PHPUnit\Framework\TestCase;
 
 final class SeverityTest extends TestCase

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Fixture;
+namespace Php2ShellTui\Tests\Fixture;
 
 use PhpTui\Term\Event;
 use PhpTui\Term\EventProvider;

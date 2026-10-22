@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan;
+namespace Php2ShellTui;
 
 final class Config
 {
@@ -80,7 +80,7 @@ final class Config
             timeout: max(1, (int) ($options['timeout'] ?? 10)),
             connectTimeout: max(1, (int) ($options['connect_timeout'] ?? 5)),
             delayMs: max(0, (int) ($options['delay_ms'] ?? 100)),
-            userAgent: (string) ($options['user_agent'] ?? sprintf('php2scan/%s', Application::VERSION)),
+            userAgent: (string) ($options['user_agent'] ?? sprintf('php2shell-tui/%s', Application::VERSION)),
             minSeverity: $minSeverity,
             format: $format,
             reportDir: (string) ($output['report_dir'] ?? './reports'),

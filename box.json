@@ -1,6 +1,6 @@
 {
     "$schema": "https://json.schemastore.org/box.json",
-    "main": "bin/php2scan",
+    "main": "bin/php2shell-tui",
     "output": "php2shell-tui",
     "chmod": "0755",
     "check-requirements": false,
@@ -12,6 +12,6 @@
         "tests",
         "reports",
         "build",
-        "php2scan.yaml"
+        "php2shell-tui.yaml"
     ]
 }

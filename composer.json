@@ -1,5 +1,5 @@
 {
-    "name": "php2scan/php2scan",
+    "name": "php2shell-tui/php2shell-tui",
     "description": "Multi-host exposure scanner for PHP2Shell and general web misconfiguration",
     "type": "project",
     "license": "MIT",
@@ -20,23 +20,23 @@
     },
     "autoload": {
         "psr-4": {
-            "Php2Scan\\": "src/"
+            "Php2ShellTui\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Php2Scan\\Tests\\": "tests/"
+            "Php2ShellTui\\Tests\\": "tests/"
         }
     },
     "bin": [
-        "bin/php2scan"
+        "bin/php2shell-tui"
     ],
     "scripts": {
         "build": [
             "@php -r \"if (!is_file('build/box.phar')) { @mkdir('build', 0777, true); if (!copy('https://github.com/box-project/box/releases/download/4.7.0/box.phar', 'build/box.phar')) { fwrite(STDERR, 'Box download failed'.PHP_EOL); exit(1); } }\"",
             "@php -d phar.readonly=0 build/box.phar compile"
         ],
-        "scan": "bin/php2scan",
+        "scan": "bin/php2shell-tui",
         "test": "phpunit"
     },
     "config": {

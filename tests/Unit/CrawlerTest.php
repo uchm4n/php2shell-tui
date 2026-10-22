@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
 use GuzzleHttp\Psr7\Response;
-use Php2Scan\Crawler\Crawler;
-use Php2Scan\Http\Client;
-use Php2Scan\Target;
+use Php2ShellTui\Crawler\Crawler;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Target;
 use PHPUnit\Framework\TestCase;
 
 final class CrawlerTest extends TestCase

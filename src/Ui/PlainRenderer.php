@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Ui;
+namespace Php2ShellTui\Ui;
 
 use Symfony\Component\Console\Output\OutputInterface;
 

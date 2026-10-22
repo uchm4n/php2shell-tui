@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
 use GuzzleHttp\Psr7\Response;
-use Php2Scan\Check\PhpDetection;
-use Php2Scan\Check\PhpVersion;
-use Php2Scan\Data\Reproduce;
-use Php2Scan\PhpVersionDb;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Check\PhpDetection;
+use Php2ShellTui\Check\PhpVersion;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Ui;
+namespace Php2ShellTui\Ui;
 
-use Php2Scan\Finding;
-use Php2Scan\Report\Theme;
-use Php2Scan\Severity;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Report\Theme;
+use Php2ShellTui\Severity;
 use PhpTui\Tui\Bridge\PhpTerm\PhpTermBackend;
 use PhpTui\Tui\Color\AnsiColor;
 use PhpTui\Tui\Display\Backend;

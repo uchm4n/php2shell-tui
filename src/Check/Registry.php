@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Check;
+namespace Php2ShellTui\Check;
 
-use Php2Scan\Config;
+use Php2ShellTui\Config;
 
 final class Registry
 {

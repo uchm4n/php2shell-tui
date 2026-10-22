@@ -13,12 +13,12 @@ Use it only on hosts you own or are authorized to test.
 - Composer
 
 ## Install
-Download [php2scan.phar](https://github.com/uchm4n/php2shell-tui/php2shell-tui).
+Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/php2shell-tui).
 
 
 ## Configure
 
-Edit `php2scan.yaml`; it is read by default.
+Edit `php2shell-tui.yaml`; it is read by default.
 
 ```yaml
 targets:
@@ -70,8 +70,8 @@ Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130`
 until you also pass `--verify` at runtime:
 
 ```bash
-bin/php2scan --verify          # asks before probing hosts not marked staging: true
-bin/php2scan --verify --yes    # no prompt
+bin/php2shell-tui --verify          # asks before probing hosts not marked staging: true
+bin/php2shell-tui --verify --yes    # no prompt
 ```
 
 Rails: at most 60 probe requests per check per target, hosts outside the target are never

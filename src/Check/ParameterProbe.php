@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Check;
+namespace Php2ShellTui\Check;
 
-use Php2Scan\Crawler\Crawler;
-use Php2Scan\Data\Reproduce;
-use Php2Scan\Finding;
-use Php2Scan\Http\Client;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Crawler\Crawler;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
 
 abstract class ParameterProbe implements Check
@@ -75,7 +75,7 @@ abstract class ParameterProbe implements Check
 
         // The angle brackets make HTML-escaping visible: a reflected marker is
         // proof only while it still contains the literal "<" and ">".
-        $marker = '<php2scan' . bin2hex(random_bytes(4)) . '>';
+        $marker = '<php2shell-tui' . bin2hex(random_bytes(4)) . '>';
         $probes = 0;
 
         foreach ($parameters as $url => $names) {

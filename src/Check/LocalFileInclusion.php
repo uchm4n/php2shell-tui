@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Check;
+namespace Php2ShellTui\Check;
 
-use Php2Scan\Severity;
+use Php2ShellTui\Severity;
 use Psr\Http\Message\ResponseInterface;
 
 final class LocalFileInclusion extends ParameterProbe

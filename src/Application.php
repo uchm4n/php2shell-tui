@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan;
+namespace Php2ShellTui;
 
-use Php2Scan\Command\ScanCommand;
+use Php2ShellTui\Command\ScanCommand;
 use Symfony\Component\Console\Application as BaseApplication;
 
 final class Application extends BaseApplication

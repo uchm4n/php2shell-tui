@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Integration;
+namespace Php2ShellTui\Tests\Integration;
 
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
 use PHPUnit\Framework\TestCase;
-use Php2Scan\Http\Client;
-use Php2Scan\Http\Pool;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Http\Pool;
 
 final class HttpTest extends TestCase
 {

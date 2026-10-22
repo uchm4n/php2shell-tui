@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Promise\FulfilledPromise;
 use GuzzleHttp\Psr7\Response;
-use Php2Scan\Check\LocalFileInclusion;
-use Php2Scan\Check\ReflectedXss;
-use Php2Scan\Check\SqlInjection;
-use Php2Scan\Data\Reproduce;
-use Php2Scan\Http\Client;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Check\LocalFileInclusion;
+use Php2ShellTui\Check\ReflectedXss;
+use Php2ShellTui\Check\SqlInjection;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\RequestInterface;
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Http;
+namespace Php2ShellTui\Http;
 
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\Promise\PromiseInterface;

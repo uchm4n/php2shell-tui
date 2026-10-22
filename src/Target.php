@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan;
+namespace Php2ShellTui;
 
 final class Target
 {

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Integration;
+namespace Php2ShellTui\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
-use Php2Scan\Application;
+use Php2ShellTui\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -39,12 +39,12 @@ final class ScanCommandTest extends TestCase
     {
         [$code, $output] = $this->runCommand([
             'command' => 'scan',
-            '--config' => '/nonexistent/php2scan.yaml',
+            '--config' => '/nonexistent/php2shell-tui.yaml',
             '--format' => 'json',
         ]);
 
         self::assertSame(2, $code);
-        self::assertStringContainsString('php2scan', $output);
+        self::assertStringContainsString('php2shell-tui', $output);
     }
 
     public function testAnUnreachableHostAloneIsNotAFinding(): void
@@ -228,14 +228,14 @@ final class ScanCommandTest extends TestCase
      */
     private function writeConfig(array $data): string
     {
-        $dir = sys_get_temp_dir() . '/php2scan-test-' . bin2hex(random_bytes(6));
+        $dir = sys_get_temp_dir() . '/php2shell-tui-test-' . bin2hex(random_bytes(6));
         mkdir($dir, 0o755, true);
         $this->cleanup[] = $dir;
 
         $this->reportDir = $dir . '/reports';
         $data['output'] = ['report_dir' => $this->reportDir];
 
-        $path = $dir . '/php2scan.yaml';
+        $path = $dir . '/php2shell-tui.yaml';
         file_put_contents($path, Yaml::dump($data, 4));
 
         return $path;
@@ -243,7 +243,7 @@ final class ScanCommandTest extends TestCase
 
     private function latestReport(): string
     {
-        $reports = glob($this->reportDir . '/php2scan-*.json') ?: [];
+        $reports = glob($this->reportDir . '/php2shell-tui-*.json') ?: [];
         self::assertNotSame([], $reports, 'the command must write a report');
 
         return (string) end($reports);

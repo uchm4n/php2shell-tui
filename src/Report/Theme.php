@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Report;
+namespace Php2ShellTui\Report;
 
-use Php2Scan\Severity;
+use Php2ShellTui\Severity;
 
 final class Theme
 {

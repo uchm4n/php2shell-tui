@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Php2Scan\Tests\Unit;
+namespace Php2ShellTui\Tests\Unit;
 
-use Php2Scan\Check\Tls;
-use Php2Scan\Data\Reproduce;
-use Php2Scan\Severity;
-use Php2Scan\Target;
+use Php2ShellTui\Check\Tls;
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
 use PHPUnit\Framework\TestCase;
 
 final class TlsTest extends TestCase
