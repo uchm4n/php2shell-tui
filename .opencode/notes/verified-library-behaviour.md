@@ -12,8 +12,14 @@ These are established facts, not guesses — re-derive only if a dependency vers
   `multiplex`, `options`, `select_timeout`, `transport_sharing`. Any other name throws.
 - The `delay` request option (milliseconds) is honoured — the transfer is not attached until the
   delay elapses. Use it for per-host politeness spacing instead of `usleep()`.
-- `allow_redirects` accepts an `on_redirect` callback; returning `false` stops the chain. Used to
-  refuse to follow a redirect that leaves the allowlisted host.
+- `tick()` does **not** block while a transfer is waiting for its `delay` to elapse, so a `tick()`-only
+  loop busy-spins and can give up before delayed transfers ever start. Waiting on the request promise
+  (`$promise->wait()`) drives the handler (`executeUntil`) until that transfer settles and honours the
+  delay; the other transfers keep running meanwhile.
+- `allow_redirects` accepts an `on_redirect` callback, but Guzzle 8 **ignores its return value** — the
+  callback is an observer only, and returning `false` does *not* stop the chain. To refuse a redirect
+  that leaves the allowlisted host, throw from the callback (that aborts the chain) and restore the 3xx
+  response from the rejection.
 - `Client::prepareDefaults()` rejects a `delay` that is not a finite non-negative number.
 
 ## aidantwoods/secureheaders 2.0.1 (unmaintained since 2017)
