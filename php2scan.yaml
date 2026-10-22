@@ -16,14 +16,14 @@ checks:
   app_fingerprint: true
   webshell_indicators: true
   open_ports: true
-  injection: false                   # phase 3; requires --verify as well
+  injection: false                   # requires --verify as well
 
 options:
   concurrency: 8
   timeout: 10                        # seconds, per request
   connect_timeout: 5
   delay_ms: 100                      # per-host politeness delay
-  user_agent: "php2scan/1.0 (+https://example.com/about)"
+  user_agent: "php2scan/0.0.1 (+https://example.com/about)"
   verify: false                      # run safe proof-of-concept requests
   min_severity: medium               # below this severity: excluded from the text/markdown
                                      # report and from the exit code, but still shown in the
