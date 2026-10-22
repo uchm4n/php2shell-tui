@@ -1,7 +1,5 @@
 /vendor/
 /reports/
-/tmp/*
-!/tmp/.gitkeep
 /.idea/
 /.phpunit.cache/
 /.phpunit.result.cache

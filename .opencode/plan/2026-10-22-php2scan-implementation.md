@@ -8,7 +8,7 @@
 
 **Tech Stack:** PHP ≥ 8.2 · Composer 2 · `guzzlehttp/guzzle` 8.3 · `symfony/console` 7 · `symfony/yaml` 7 · `symfony/dom-crawler` 7 (phase 3) · `aidantwoods/secureheaders` 2.0.1 · `php-tui/php-tui` 0.2.1 · PHPUnit 11
 
-**Spec:** `../specs`
+**Spec:** `.opencode/specs/2026-10-22-php2scan-design.md`
 
 ---
 
@@ -299,11 +299,10 @@ It must contain exactly:
 ```
 /vendor/
 /reports/
-/tmp/*
-!/tmp/.gitkeep
 /.idea/
 /.phpunit.cache/
 /.phpunit.result.cache
+/.superpowers/
 .DS_Store
 ```
 
@@ -525,7 +524,7 @@ git commit -m "feat: severity enum and finding value object"
 - Consumes: `Php2Scan\Severity` (Task 2).
 - Produces:
   - `Php2Scan\Target` — `final class Target` with `public readonly` promoted properties `string $url`, `?string $vhost`, `array $paths` (`list<string>`), `bool $staging`; methods `host(): string` (host component of `$url`), `requestHeaders(): array` (returns `['Host' => $vhost]` when `$vhost` is not null, otherwise `[]`), `label(): string` (returns `$this->vhost ?? $this->host()`).
-  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data, string $baseDir = ''): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
+  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
 
 - [ ] **Step 1: Write the failing test `tests/Unit/ConfigTest.php`**
 
@@ -719,13 +718,13 @@ final class Config
             throw new \InvalidArgumentException(sprintf('Config file "%s" is empty or malformed.', $path));
         }
 
-        return self::fromArray($parsed, dirname($path));
+        return self::fromArray($parsed);
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public static function fromArray(array $data, string $baseDir = ''): self
+    public static function fromArray(array $data): self
     {
         $targets = self::parseTargets($data['targets'] ?? []);
         $checks = self::parseChecks($data['checks'] ?? []);
@@ -1000,18 +999,18 @@ namespace Php2Scan;
 final class PhpVersionDb
 {
     /**
-     * @param array<string, string> $fixed
-     * @param list<string>          $cves
+     * @var array<string, string>
      */
-    public function __construct(
-        private readonly string $advisory,
-        private readonly array $fixed,
-        private readonly array $cves,
-        private readonly string $dataFile,
-    ) {
-    }
+    private readonly array $fixed;
 
-    public static function fromFile(string $dataFile): self
+    /**
+     * @var list<string>
+     */
+    private readonly array $cves;
+
+    private readonly string $advisory;
+
+    public function __construct(private readonly string $dataFile)
     {
         $raw = @file_get_contents($dataFile);
         if ($raw === false) {
@@ -1020,12 +1019,14 @@ final class PhpVersionDb
 
         $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
-        return new self(
-            advisory: (string) ($data['advisory'] ?? 'PHP2Shell'),
-            fixed: (array) ($data['fixed'] ?? []),
-            cves: array_values((array) ($data['cves'] ?? [])),
-            dataFile: $dataFile,
-        );
+        $this->advisory = (string) ($data['advisory'] ?? 'PHP2Shell');
+        $this->fixed = (array) ($data['fixed'] ?? []);
+        $this->cves = array_values((array) ($data['cves'] ?? []));
+    }
+
+    public static function fromFile(string $dataFile): self
+    {
+        return new self($dataFile);
     }
 
     public function advisoryName(): string
@@ -1601,6 +1602,24 @@ final class DataTest extends TestCase
         $reproduce = new Reproduce($this->dataDir . '/repro');
 
         self::assertSame([], $reproduce->steps('does-not-exist', 'https://example.com'));
+    }
+
+    public function testEveryReproduceFileYieldsAtLeastOneStep(): void
+    {
+        $reproduce = new Reproduce($this->dataDir . '/repro');
+        $files = glob($this->dataDir . '/repro/*.md') ?: [];
+
+        self::assertNotSame([], $files, 'there must be reproduce files to sweep');
+
+        foreach ($files as $file) {
+            $id = basename($file, '.md');
+
+            self::assertNotSame(
+                [],
+                $reproduce->steps($id, 'https://example.com'),
+                $id . ' must yield at least one reproduce step'
+            );
+        }
     }
 }
 ```
@@ -2965,6 +2984,8 @@ git commit -m "feat: sensitive file exposure check"
 **Files:**
 - Create: `src/Check/SecurityHeaders.php`
 - Create: `data/repro/security-headers.md`
+- Create: `tests/bootstrap.php`
+- Modify: `phpunit.xml.dist`
 - Test: `tests/Unit/SecurityHeadersTest.php`
 
 **Interfaces:**
@@ -3087,7 +3108,27 @@ final class SecurityHeadersTest extends TestCase
 Run: `composer test -- --filter SecurityHeadersTest`
 Expected: FAIL — `Class "Php2Scan\Check\SecurityHeaders" not found`.
 
-- [ ] **Step 3: Implement `src/Check/SecurityHeaders.php`**
+- [ ] **Step 3: Create `tests/bootstrap.php` and point `phpunit.xml.dist` at it**
+
+`aidantwoods/secureheaders` emits PHP 8.5 deprecations at class-load time. `bin/php2scan` already suppresses them, but PHPUnit's bootstrap does not, so this task's test would emit deprecation noise and the output would not be pristine.
+
+`tests/bootstrap.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+// aidantwoods/secureheaders emits PHP 8.5 deprecations at class-load time.
+// Suppress them before the class is ever autoloaded so the test output stays pristine.
+error_reporting(E_ALL & ~E_DEPRECATED);
+
+require __DIR__ . '/../vendor/autoload.php';
+```
+
+Then change the `bootstrap` attribute in `phpunit.xml.dist` from `vendor/autoload.php` to `tests/bootstrap.php`.
+
+- [ ] **Step 4: Implement `src/Check/SecurityHeaders.php`**
 
 ```php
 <?php
@@ -3276,7 +3317,7 @@ final class SecurityHeaders implements Check
 }
 ```
 
-- [ ] **Step 4: Create `data/repro/security-headers.md`**
+- [ ] **Step 5: Create `data/repro/security-headers.md`**
 
 ```
 curl -sSI {url}/ | grep -iE 'strict-transport-security|content-security-policy|x-content-type-options|x-frame-options|referrer-policy'
@@ -3285,15 +3326,15 @@ curl -sSI {url}/ | grep -i set-cookie
 # shows the cookie flags
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 6: Run the test to verify it passes**
 
 Run: `composer test -- --filter SecurityHeadersTest`
 Expected: PASS — `OK (5 tests, 8 assertions)`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/Check/SecurityHeaders.php data/repro/security-headers.md tests/Unit/SecurityHeadersTest.php
+git add src/Check/SecurityHeaders.php data/repro/security-headers.md tests/bootstrap.php phpunit.xml.dist tests/Unit/SecurityHeadersTest.php
 git commit -m "feat: security header and cookie flag audit"
 ```
 
@@ -3364,9 +3405,7 @@ public function __construct(
 // if ($cert === null) { return []; }
 ```
 
-The test then passes a resolver closure returning `['validFrom' => time() - 86400 * 365, 'validTo' => time() - 86400, 'subject' => 'CN=expired.example.com']`.
-
-Use these test methods:
+Add these three methods to the same `TlsTest` class:
 
 ```php
     public function testAnExpiredCertificateIsCritical(): void
@@ -5357,9 +5396,9 @@ git commit -m "feat: parameter crawler for verification checks"
 - Create: `src/Check/SqlInjection.php`
 - Create: `src/Check/ReflectedXss.php`
 - Create: `src/Check/LocalFileInclusion.php`
-- Create: `data/repro/sqli.md`
-- Create: `data/repro/xss.md`
-- Create: `data/repro/lfi.md`
+- Create: `data/repro/sql_injection.md`
+- Create: `data/repro/reflected_xss.md`
+- Create: `data/repro/local_file_inclusion.md`
 - Test: `tests/Unit/InjectionChecksTest.php`
 
 **Interfaces:**
@@ -5807,7 +5846,7 @@ final class LocalFileInclusion extends ParameterProbe
 
 - [ ] **Step 7: Create the reproduce files**
 
-`data/repro/sqli.md`:
+`data/repro/sql_injection.md`:
 
 ```
 curl -sS -o /dev/null -w '%{{http_code}} %{{size_download}}\n' '{url}'
@@ -5816,14 +5855,14 @@ curl -sS -o /dev/null -w '%{{http_code}} %{{size_download}}\n' '{url}&q=%27'
 # the quote changes the response, which means the parameter reaches the database
 ```
 
-`data/repro/xss.md`:
+`data/repro/reflected_xss.md`:
 
 ```
 curl -sS '{url}&q=php2scanmarker' | grep -o 'php2scanmarker'
 # the marker comes back unencoded, so a script tag would execute
 ```
 
-`data/repro/lfi.md`:
+`data/repro/local_file_inclusion.md`:
 
 ```
 curl -sS '{url}&file=../../../../etc/passwd' | head -3
@@ -5840,7 +5879,7 @@ The tests above inject the parameter map and queue the baseline and mutated resp
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/Check/ParameterProbe.php src/Check/SqlInjection.php src/Check/ReflectedXss.php src/Check/LocalFileInclusion.php data/repro/sqli.md data/repro/xss.md data/repro/lfi.md tests/Unit/InjectionChecksTest.php
+git add src/Check/ParameterProbe.php src/Check/SqlInjection.php src/Check/ReflectedXss.php src/Check/LocalFileInclusion.php data/repro/sql_injection.md data/repro/reflected_xss.md data/repro/local_file_inclusion.md tests/Unit/InjectionChecksTest.php
 git commit -m "feat: opt-in injection verification checks"
 ```
 

@@ -4,8 +4,9 @@ Workspace data for opencode working in this repository.
 
 | Path | Contents |
 |---|---|
-| `notes/` | Working notes, research dumps, API notes captured during implementation |
-| `plan/` | Mirror of the harness plan directory (`~/.opencode/plan`) for this project |
+| `specs/` | Design specifications — the binding authority for what the tool does and why |
+| `plan/` | Implementation plans — the ordered, testable task breakdown of a spec |
+| `notes/` | Working notes, research dumps and verified API notes |
 
-Everything else in this repository is project source: `specs` (design), `plans/` (implementation plans),
-`src/`, `bin/`, `data/`, `tests/`, `tmp/` (gitignored scratch).
+Everything else in this repository is project source: `src/`, `bin/`, `data/`, `tests/`,
+plus `composer.json`, `phpunit.xml.dist` and `php2scan.yaml.example`.
