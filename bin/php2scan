@@ -1,0 +1,12 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// aidantwoods/secureheaders emits PHP 8.5 deprecations at class-load time.
+// This must be set before the class is ever autoloaded.
+error_reporting(E_ALL & ~E_DEPRECATED);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+exit((new Php2Scan\Application())->run());

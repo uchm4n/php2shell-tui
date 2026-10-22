@@ -5,6 +5,5 @@
 /.idea/
 /.phpunit.cache/
 /.phpunit.result.cache
+/.superpowers/
 .DS_Store
-.opencode/
-.superpowers/
