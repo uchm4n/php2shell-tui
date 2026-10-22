@@ -73,8 +73,6 @@ final class Pool
             $promise->wait();
         }
 
-        ksort($results);
-
         return array_values($results);
     }
 }
