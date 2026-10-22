@@ -6,8 +6,13 @@ namespace Php2Scan\Tests\Unit;
 
 use Php2Scan\Finding;
 use Php2Scan\Severity;
+use Php2Scan\Tests\Fixture\FakeEventProvider;
 use Php2Scan\Ui\TuiRenderer;
 use PHPUnit\Framework\TestCase;
+use PhpTui\Term\Event\CharKeyEvent;
+use PhpTui\Term\Event\CodedKeyEvent;
+use PhpTui\Term\KeyCode;
+use PhpTui\Term\KeyModifiers;
 use PhpTui\Tui\Display\Backend\DummyBackend;
 
 final class TuiRendererTest extends TestCase
@@ -75,5 +80,71 @@ final class TuiRendererTest extends TestCase
         self::assertSame('two', $renderer->selected()?->id);
         $renderer->move(-5);
         self::assertSame('one', $renderer->selected()?->id);
+    }
+
+    public function testTheQKeyRequestsAQuit(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+
+        self::assertFalse($renderer->isQuitRequested());
+        $renderer->handleKey('q');
+        self::assertTrue($renderer->isQuitRequested());
+    }
+
+    public function testTheRKeyTogglesTheExpandedView(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->setFindings([new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s'])]);
+
+        $renderer->handleKey('r');
+        $renderer->draw();
+        self::assertStringContainsString('$ s', $backend->toString());
+    }
+
+    public function testTheSKeyRequestsASave(): void
+    {
+        $renderer = new TuiRenderer(new DummyBackend(100, 30));
+        $renderer->start(['a.example.com']);
+
+        self::assertFalse($renderer->saveRequested());
+        $renderer->handleKey('s');
+        self::assertTrue($renderer->saveRequested());
+    }
+
+    public function testTheTerminalEventsDriveTheKeyHandling(): void
+    {
+        $events = new FakeEventProvider([
+            CodedKeyEvent::new(KeyCode::Down),
+            CharKeyEvent::new('c', KeyModifiers::CONTROL),
+        ]);
+        $renderer = new TuiRenderer(new DummyBackend(100, 30), $events);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+            new Finding('two', 'Second', Severity::Low, 'b.example.com', 'e', 'x', ['s']),
+        ]);
+
+        $renderer->pollKeys();
+
+        self::assertSame('two', $renderer->selected()?->id);
+        self::assertTrue($renderer->isQuitRequested());
+    }
+
+    public function testTheEnterKeyExpandsTheSelectedFinding(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $events = new FakeEventProvider([CodedKeyEvent::new(KeyCode::Enter)]);
+        $renderer = new TuiRenderer($backend, $events);
+        $renderer->start(['a.example.com']);
+        $renderer->setFindings([new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s'])]);
+
+        $renderer->pollKeys();
+        $renderer->draw();
+
+        self::assertStringContainsString('$ s', $backend->toString());
     }
 }

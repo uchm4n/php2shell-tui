@@ -25,6 +25,7 @@ use Php2Scan\Http\Pool;
 use Php2Scan\PhpVersionDb;
 use Php2Scan\Report\Report;
 use Php2Scan\Ui\PlainRenderer;
+use Php2Scan\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -97,7 +98,28 @@ final class ScanCommand extends Command
             ]);
 
             $engine = new Engine($pool, $registry);
-            $result = $engine->run($config);
+
+            if ($format === 'tui') {
+                $renderer = new TuiRenderer();
+                $renderer->start(array_map(static fn ($t): string => $t->label(), $config->targets));
+
+                try {
+                    $result = $engine->run($config, static function (string $label, string $phase, int $done, int $total) use ($renderer): void {
+                        $renderer->update($label, $phase, $done, $total);
+                        $renderer->pollKeys();
+                        $renderer->draw();
+                    });
+
+                    $renderer->setFindings($result->findings);
+                    $renderer->draw();
+                } finally {
+                    // Puts the terminal back before the plain report is written,
+                    // including when the scan throws or the user quits.
+                    $renderer->stop();
+                }
+            } else {
+                $result = $engine->run($config);
+            }
 
             $report = new Report($result, $config);
             $rendered = $report->render($format);

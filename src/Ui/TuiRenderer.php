@@ -27,6 +27,11 @@ use PhpTui\Tui\Text\Title;
 use PhpTui\Tui\Widget\Borders;
 use PhpTui\Tui\Widget\Direction;
 use PhpTui\Term\Actions;
+use PhpTui\Term\Event\CharKeyEvent;
+use PhpTui\Term\Event\CodedKeyEvent;
+use PhpTui\Term\EventProvider;
+use PhpTui\Term\KeyCode;
+use PhpTui\Term\KeyModifiers;
 use PhpTui\Term\Terminal;
 
 /**
@@ -68,14 +73,20 @@ final class TuiRenderer
 
     private Display $display;
     private ?Terminal $terminal = null;
+    private ?EventProvider $events = null;
 
-    public function __construct(?Backend $backend = null)
+    /**
+     * The event source is injectable so the key handling can be tested
+     * without a terminal; the real one reads the terminal created above.
+     */
+    public function __construct(?Backend $backend = null, ?EventProvider $events = null)
     {
         if ($backend === null) {
             $this->terminal = Terminal::new();
             $backend = PhpTermBackend::new($this->terminal);
         }
 
+        $this->events = $events ?? $this->terminal?->events();
         $this->display = DisplayBuilder::default($backend)->build();
     }
 
@@ -145,6 +156,57 @@ final class TuiRenderer
         $this->quit = true;
     }
 
+    public function handleKey(string $key): void
+    {
+        match ($key) {
+            'q' => $this->quit = true,
+            'j' => $this->move(1),
+            'k' => $this->move(-1),
+            'r', "\n" => $this->toggleExpanded(),
+            's' => $this->save = true,
+            default => null,
+        };
+    }
+
+    public function saveRequested(): bool
+    {
+        return $this->save;
+    }
+
+    /**
+     * Drains the pending terminal events.
+     *
+     * The event source is non-blocking, and a renderer without one (the
+     * DummyBackend in tests) has nothing to drain, so this never waits.
+     */
+    public function pollKeys(): void
+    {
+        if ($this->events === null) {
+            return;
+        }
+
+        while (($event = $this->events->next()) !== null) {
+            if ($event instanceof CharKeyEvent) {
+                if (($event->modifiers & KeyModifiers::CONTROL) !== 0 && $event->char === 'c') {
+                    $this->quit = true;
+                    continue;
+                }
+
+                $this->handleKey($event->char);
+                continue;
+            }
+
+            if ($event instanceof CodedKeyEvent) {
+                $this->handleKey(match ($event->code) {
+                    KeyCode::Down => 'j',
+                    KeyCode::Up => 'k',
+                    KeyCode::Enter => 'r',
+                    default => '',
+                });
+            }
+        }
+    }
+
     /**
      * Renders the current frame.
      *
@@ -153,6 +215,15 @@ final class TuiRenderer
      * the screen.
      */
     public function draw(): void
+    {
+        $this->renderFrame();
+    }
+
+    /**
+     * One render pass. `draw()` is the name from the first task; both render
+     * the same frame.
+     */
+    public function renderFrame(): void
     {
         $this->display->draw(GridWidget::default()
             ->direction(Direction::Vertical)
