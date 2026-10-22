@@ -100,6 +100,17 @@ final class PhpVersionDbTest extends TestCase
         self::assertSame('8.5.12', $this->db->newestKnown());
     }
 
+    public function testItKnowsTheEarliestFixedRelease(): void
+    {
+        self::assertSame('8.2.35', $this->db->earliestFixed());
+    }
+
+    public function testABranchTheAdvisoryDoesNotCoverIsNotJudged(): void
+    {
+        self::assertNull($this->db->vulnerableThrough('5.3'));
+        self::assertFalse($this->db->isAffected('5.3.29'));
+    }
+
     public function testItKnowsTheCves(): void
     {
         self::assertSame(['CVE-2026-109618', 'CVE-2026-109619'], $this->db->cves());

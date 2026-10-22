@@ -62,6 +62,23 @@ final class PhpVersionDb
     }
 
     /**
+     * The earliest release that carries the fix on any branch ("8.2.35"): the
+     * oldest release an affected host can be upgraded to.
+     */
+    public function earliestFixed(): ?string
+    {
+        $earliest = null;
+
+        foreach ($this->fixed as $release) {
+            if ($earliest === null || version_compare($release, $earliest, '<')) {
+                $earliest = $release;
+            }
+        }
+
+        return $earliest;
+    }
+
+    /**
      * @return list<string>
      */
     public function cves(): array
