@@ -1,0 +1,79 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Php2Scan\Tests\Unit;
+
+use Php2Scan\Finding;
+use Php2Scan\Severity;
+use Php2Scan\Ui\TuiRenderer;
+use PHPUnit\Framework\TestCase;
+use PhpTui\Tui\Display\Backend\DummyBackend;
+
+final class TuiRendererTest extends TestCase
+{
+    public function testItRendersTheTargetsAndTheFindings(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['legacy.example.com']);
+        $renderer->update('legacy.example.com', 'probing');
+        $renderer->setFindings([
+            new Finding(
+                id: 'php2shell-version',
+                title: 'PHP2Shell · CVE-2026-109618',
+                severity: Severity::Critical,
+                target: 'legacy.example.com',
+                evidence: 'PHP 8.1.29 detected via X-Powered-By (confidence: high); affected - patched in 8.2.35.',
+                exploit: 'Send the published OOM trigger to any .php endpoint for pre-auth RCE.',
+                reproduce: ['curl -sI https://legacy.example.com/ | grep -i x-powered-by'],
+            ),
+        ]);
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('legacy.example.com', $frame);
+        self::assertStringContainsString('PHP2Shell', $frame);
+        self::assertStringContainsString('CRITICAL', $frame);
+    }
+
+    public function testExpandingTheSelectedFindingShowsTheReproduceSteps(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['legacy.example.com']);
+        $renderer->setFindings([
+            new Finding(
+                id: 'php2shell-version',
+                title: 'PHP2Shell',
+                severity: Severity::Critical,
+                target: 'legacy.example.com',
+                evidence: 'e',
+                exploit: 'x',
+                reproduce: ['curl -sS https://legacy.example.com/ | head -20'],
+            ),
+        ]);
+        $renderer->toggleExpanded();
+        $renderer->draw();
+
+        self::assertStringContainsString('curl -sS https://legacy.example.com/', $backend->toString());
+    }
+
+    public function testTheSelectionMoves(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com', 'b.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+            new Finding('two', 'Second', Severity::Low, 'b.example.com', 'e', 'x', ['s']),
+        ]);
+
+        self::assertSame('one', $renderer->selected()?->id);
+        $renderer->move(1);
+        self::assertSame('two', $renderer->selected()?->id);
+        $renderer->move(-5);
+        self::assertSame('one', $renderer->selected()?->id);
+    }
+}
