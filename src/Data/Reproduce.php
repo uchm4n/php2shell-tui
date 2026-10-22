@@ -11,9 +11,10 @@ final class Reproduce
     }
 
     /**
+     * @param array<string, string> $extra
      * @return list<string>
      */
-    public function steps(string $findingId, string $targetUrl, ?string $host = null): array
+    public function steps(string $findingId, string $targetUrl, ?string $host = null, array $extra = []): array
     {
         $path = $this->reproDir . '/' . $findingId . '.md';
         $raw = @file_get_contents($path);
@@ -34,6 +35,7 @@ final class Reproduce
             $steps[] = strtr($block, [
                 '{url}' => rtrim($targetUrl, '/'),
                 '{host}' => $host ?? rtrim($targetUrl, '/'),
+                '{path}' => (string) ($extra['path'] ?? ''),
             ]);
         }
 

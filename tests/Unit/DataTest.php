@@ -48,6 +48,15 @@ final class DataTest extends TestCase
         self::assertSame([], $reproduce->steps('does-not-exist', 'https://example.com'));
     }
 
+    public function testThePathPlaceholderIsSubstituted(): void
+    {
+        $reproduce = new Reproduce($this->dataDir . '/repro');
+        $steps = $reproduce->steps('sensitive-file', 'https://legacy.example.com', 'legacy.example.com', ['path' => '.env']);
+
+        self::assertStringContainsString('https://legacy.example.com/.env', $steps[0]);
+        self::assertStringNotContainsString('{path}', implode("\n", $steps));
+    }
+
     public function testEveryReproduceFileYieldsAtLeastOneStep(): void
     {
         $reproduce = new Reproduce($this->dataDir . '/repro');
