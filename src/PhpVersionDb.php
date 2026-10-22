@@ -12,6 +12,11 @@ final class PhpVersionDb
     private readonly array $fixed;
 
     /**
+     * @var array<string, string>
+     */
+    private readonly array $vulnerableThroughMap;
+
+    /**
      * @var list<string>
      */
     private readonly array $cves;
@@ -29,6 +34,7 @@ final class PhpVersionDb
 
         $this->advisory = (string) ($data['advisory'] ?? 'PHP2Shell');
         $this->fixed = array_map('strval', (array) ($data['fixed'] ?? []));
+        $this->vulnerableThroughMap = array_map('strval', (array) ($data['vulnerable_through'] ?? []));
         $this->cves = array_values(array_map('strval', (array) ($data['cves'] ?? [])));
     }
 
@@ -75,6 +81,15 @@ final class PhpVersionDb
         return $branch === null ? null : $this->firstFixed($branch);
     }
 
+    /**
+     * The last vulnerable release of a branch, e.g. "8.1.34", or null when the
+     * branch is not covered by the advisory.
+     */
+    public function vulnerableThrough(string $branch): ?string
+    {
+        return $this->vulnerableThroughMap[$branch] ?? null;
+    }
+
     public function branch(string $version): ?string
     {
         $normalized = $this->normalize($version);
@@ -101,6 +116,16 @@ final class PhpVersionDb
         return sprintf('%d.%d.%d', (int) $m[1], (int) ($m[2] ?? 0), (int) ($m[3] ?? 0));
     }
 
+    /**
+     * True for a development or pre-release build. A pre-release is never
+     * evidence of a stable fix, so it must never be read as patched - but a
+     * distribution suffix ("8.2.12-1ubuntu2.14") is not a pre-release.
+     */
+    public function isPrerelease(string $raw): bool
+    {
+        return preg_match('/\d+\.\d+\.\d+[-+~.\s]*(?:dev|alpha|beta|rc)\d*/i', $raw) === 1;
+    }
+
     public function isAffected(string $version): bool
     {
         $normalized = $this->normalize($version);
@@ -114,13 +139,14 @@ final class PhpVersionDb
             return false;
         }
 
-        $fixed = $this->firstFixed($branch);
+        $through = $this->vulnerableThrough($branch);
 
-        if ($fixed === null) {
-            // No fixed release exists for this branch: it is end-of-life and affected.
-            return true;
+        if ($through === null) {
+            // Unknown branch: this table cannot judge it. The caller reports
+            // it as unknown rather than patched.
+            return false;
         }
 
-        return version_compare($normalized, $fixed, '<');
+        return version_compare($normalized, $through, '<=');
     }
 }

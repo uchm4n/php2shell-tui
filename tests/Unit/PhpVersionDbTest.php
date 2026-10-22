@@ -70,6 +70,31 @@ final class PhpVersionDbTest extends TestCase
         self::assertTrue($this->db->isAffected('8.1.29'));
     }
 
+    public function testEveryBranchHasAVulnerableThroughCutoff(): void
+    {
+        self::assertSame('8.1.34', $this->db->vulnerableThrough('8.1'));
+        self::assertSame('8.2.34', $this->db->vulnerableThrough('8.2'));
+        self::assertSame('8.5.11', $this->db->vulnerableThrough('8.5'));
+        self::assertNull($this->db->vulnerableThrough('9.9'));
+    }
+
+    public function testTheLastReleaseOfAnEndOfLifeBranchIsStillAffected(): void
+    {
+        self::assertTrue($this->db->isAffected('8.1.34'));
+        self::assertTrue($this->db->isAffected('8.0.30'));
+        self::assertTrue($this->db->isAffected('7.4.33'));
+        self::assertTrue($this->db->isAffected('5.6.40'));
+    }
+
+    public function testItRecognisesPreReleaseBuilds(): void
+    {
+        self::assertTrue($this->db->isPrerelease('8.3.0-dev'));
+        self::assertTrue($this->db->isPrerelease('8.2.35RC1'));
+        self::assertTrue($this->db->isPrerelease('8.2.35-rc1'));
+        self::assertFalse($this->db->isPrerelease('8.2.12-1ubuntu2.14'));
+        self::assertFalse($this->db->isPrerelease('8.2.12'));
+    }
+
     public function testItKnowsTheNewestKnownRelease(): void
     {
         self::assertSame('8.5.12', $this->db->newestKnown());

@@ -1,11 +1,28 @@
 {
     "advisory": "PHP2Shell",
     "cves": ["CVE-2026-109618", "CVE-2026-109619"],
+    "vulnerable_through": {
+        "5.4": "5.4.45",
+        "5.5": "5.5.38",
+        "5.6": "5.6.40",
+        "7.0": "7.0.33",
+        "7.1": "7.1.33",
+        "7.2": "7.2.34",
+        "7.3": "7.3.33",
+        "7.4": "7.4.33",
+        "8.0": "8.0.30",
+        "8.1": "8.1.34",
+        "8.2": "8.2.34",
+        "8.3": "8.3.35",
+        "8.4": "8.4.26",
+        "8.5": "8.5.11"
+    },
     "fixed": {
         "8.2": "8.2.35",
         "8.3": "8.3.36",
         "8.4": "8.4.27",
         "8.5": "8.5.12"
     },
-    "note": "All releases before the first fixed release of their branch are affected. Branches below 8.2 are end-of-life and have no fix."
+    "source": "https://www.php2shell.com and https://github.com/openai/php2shell-checker (cutoffs as of 2026-10-20)",
+    "note": "vulnerable_through is the last vulnerable release in each branch, inclusive. Every branch below 8.2 is end-of-life and its final release is still vulnerable, so there is no fixed release for it. The 8.2-8.5 cutoffs match the official advisory exactly; the end-of-life cutoffs were cross-checked against the final releases published on php.net (8.1.34, 8.0.30, 7.4.33, 5.6.40)."
 }
