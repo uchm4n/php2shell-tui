@@ -1,6 +1,6 @@
 # PHP2Shell-TUI 
 
-Exposure scanner for CVE-2026-109618 / CVE-2026-109619 ("PHP2Shell") and general web
+Exposure scanner for **CVE-2026-109618** / **CVE-2026-109619** ("PHP2Shell") and general web
 misconfiguration. Each finding carries evidence, a one-sentence exploit line, and runnable
 reproduce steps.
 
@@ -8,6 +8,8 @@ It only contacts the hosts listed in your config — no discovery, no host argum
 Use it only on hosts you own or are authorized to test.
 
 **Note**: It checks the **PHP2Shell** exposure condition, **not** the exploit itself.
+
+<img src="./screenshot.png" alt="php2shell-tui" width="600">
 
 ## Requirements
 
