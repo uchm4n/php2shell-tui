@@ -95,8 +95,12 @@ final class SensitiveFiles implements Check
 
     private static function severityFor(string $relative): Severity
     {
+        if (str_ends_with($relative, '.bak')) {
+            return Severity::High;
+        }
+
         foreach (self::HIGH as $needle) {
-            if ($relative === $needle || str_ends_with($relative, '.bak')) {
+            if ($relative === $needle) {
                 return Severity::High;
             }
         }

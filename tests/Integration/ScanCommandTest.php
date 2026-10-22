@@ -187,6 +187,26 @@ final class ScanCommandTest extends TestCase
         ]);
     }
 
+    public function testVerifyWithoutYesAbortsInNonInteractiveMode(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->injectionConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+                '--no-interaction' => true,
+            ]);
+
+            self::assertSame(2, $code);
+            self::assertStringContainsString('requires --yes', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
     /**
      * @param array<string, mixed> $input
      * @return array{int, string}

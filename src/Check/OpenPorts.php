@@ -71,6 +71,8 @@ final class OpenPorts implements Check
 
     private static function probe(string $host, int $port): bool
     {
+        // ponytail: ports are probed sequentially at 150ms each. Fine for the
+        // curated list; pool them through the HTTP handler if scan time matters.
         $errno = 0;
         $errstr = '';
         $socket = @fsockopen($host, $port, $errno, $errstr, 0.15);

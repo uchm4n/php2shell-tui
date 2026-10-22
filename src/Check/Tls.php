@@ -183,6 +183,9 @@ final class Tls implements Check
     {
         $context = stream_context_create([
             'ssl' => [
+                // The certificate is examined even when it is expired, self-signed
+                // or issued for another name - those are exactly the findings this
+                // check reports, so peer verification must stay off here.
                 'capture_peer_cert' => true,
                 'verify_peer' => false,
                 'verify_peer_name' => false,

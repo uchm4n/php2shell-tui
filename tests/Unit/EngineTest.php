@@ -184,6 +184,42 @@ final class EngineTest extends TestCase
         self::assertCount(1, $result->findings);
     }
 
+    public function testACheckCannotMakeTheEngineFetchAnotherHost(): void
+    {
+        $check = new class implements Check {
+            public function id(): string
+            {
+                return 'php_presence';
+            }
+
+            public function paths(Target $target, ?ResponseInterface $baseline): array
+            {
+                return ['https://evil.example/steal'];
+            }
+
+            public function analyze(Target $target, array $responses): array
+            {
+                return [];
+            }
+        };
+
+        $urls = [];
+        $engine = self::engine([$check], static fn (): ResponseInterface => new Response(200, [], 'ok'), $urls);
+
+        try {
+            $engine->run(Config::fromArray([
+                'targets' => ['https://one.example/'],
+                'checks' => ['php_presence' => true],
+            ]));
+
+            self::fail('a check must not be able to widen the scope');
+        } catch (\InvalidArgumentException) {
+            // Expected: the engine rejects a path on a host the operator did not list.
+        }
+
+        self::assertNotContains('https://evil.example/steal', $urls);
+    }
+
     /**
      * @param list<string> $paths
      */

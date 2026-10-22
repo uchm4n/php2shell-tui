@@ -141,6 +141,17 @@ final class Engine
     private function urlFor(Target $target, string $path): string
     {
         if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            // Checks are meant to return relative paths. An absolute URL is only
+            // honoured when it stays on the allowlisted host, so a check can never
+            // widen the scope the operator chose.
+            if (parse_url($path, PHP_URL_HOST) !== parse_url($target->url, PHP_URL_HOST)) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Check returned "%s", which is not on the target host "%s".',
+                    $path,
+                    (string) parse_url($target->url, PHP_URL_HOST)
+                ));
+            }
+
             return $path;
         }
 

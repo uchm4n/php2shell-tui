@@ -123,6 +123,12 @@ final class ScanCommand extends Command
                 }
 
                 if ($needsConfirmation) {
+                    if (!$input->isInteractive()) {
+                        $output->writeln('<comment>Aborted - verification requires --yes when the input is not interactive.</comment>');
+
+                        return 2;
+                    }
+
                     $confirmed = $this->getHelper('question')->ask(
                         $input,
                         $output,
