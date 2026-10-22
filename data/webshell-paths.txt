@@ -1,0 +1,13 @@
+shell.php
+c99.php
+r57.php
+b374k.php
+c1001.php
+cmd.php
+x.php
+h.php
+b.php
+0.php
+1.php
+s.php
+webshell.php
