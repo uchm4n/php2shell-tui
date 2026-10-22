@@ -172,7 +172,7 @@ tests/
   Integration/FixtureServerTest.php
 ```
 
-`Report` is a single class with a format switch rather than three classes; `data/` holds all wordlists and reproduce steps so they are editable without touching PHP.
+`Report` is a single class with a format switch rather than three classes; `../../data` holds all wordlists and reproduce steps so they are editable without touching PHP.
 
 ## 7. Configuration reference
 
@@ -225,7 +225,7 @@ Validation is fail-fast with actionable messages: unknown check name, malformed 
 |---|---|---|
 | `php_presence` | `X-Powered-By`, `PHPSESSID` cookie, `Server: Apache/… PHP/8.x`, `Set-Cookie` patterns, body markers | which signal fired, on which URL |
 | `php_version` | version extraction from the above + `phpinfo`/`info.php` probes | raw version string, source, confidence |
-| `sensitive_files` | ~24 paths: `.env`, `.env.local`, `.git/config`, `.git/HEAD`, `composer.json`, `composer.lock`, `package.json`, `.htaccess`, `.DS_Store`, `phpinfo.php`, `info.php`, `server-status`, `server-info`, `wp-config.php.bak`, `backup.zip`, `dump.sql`, `.aws/credentials`, `id_rsa`, `.npmrc`, `.dockerignore`, `Dockerfile`, `adminer.php`, `phpmyadmin/`, `.well-known/security.txt` | status, size, matched secret pattern |
+| `sensitive_files` | ~24 paths: `.env`, `.env.local`, `.git/config`, `.git/HEAD`, `../../composer.json`, `composer.lock`, `package.json`, `.htaccess`, `.DS_Store`, `phpinfo.php`, `info.php`, `server-status`, `server-info`, `wp-config.php.bak`, `backup.zip`, `dump.sql`, `.aws/credentials`, `id_rsa`, `.npmrc`, `.dockerignore`, `Dockerfile`, `adminer.php`, `phpmyadmin/`, `.well-known/security.txt` | status, size, matched secret pattern |
 | `security_headers` | `aidantwoods/secureheaders` rulebook (missing/unsafe headers) + cookie flag audit (`Secure`, `HttpOnly`, `SameSite`) | which header, expected vs actual |
 | `tls` | native `openssl_x509_parse` over a raw TLS socket: expiry, issuer, SAN match, TLS version | cert details, days remaining |
 | `app_fingerprint` | WordPress, Drupal, Joomla, Laravel, Symfony, Next.js, PHPUnit — via body markers and known paths | product, version if leaked |
@@ -237,7 +237,7 @@ Validation is fail-fast with actionable messages: unknown check name, malformed 
 | Case | Severity | Rule |
 |---|---|---|
 | `.env`, `.git/config`, `.aws/credentials`, `id_rsa`, `.npmrc` returned `200` | high | credential or repository disclosure |
-| `composer.lock`, `composer.json`, `package.json` returned `200` | medium | dependency manifest disclosure |
+| `../../composer.lock`, `composer.json`, `package.json` returned `200` | medium | dependency manifest disclosure |
 | `phpinfo.php`, `info.php`, `server-status` returned `200` | medium | runtime information disclosure |
 | `*.bak`, `backup.zip`, `dump.sql` returned `200` | high | source or database disclosure |
 | `Dockerfile`, `.dockerignore` returned `200` | low | build metadata disclosure |
@@ -432,7 +432,7 @@ Runtime floor: **PHP ≥ 8.2** (matches the oldest branch we triage). Verified l
 
 | Phase | Contents | Exit criterion |
 |---|---|---|
-| **P1** | Composer skeleton, `Config`, `Target`, `Http\Client`, `Http\Pool`, `Engine`, core checks, `Finding`, `Report` (text/json/markdown), `bin/php2scan` | `php2scan --config php2scan.yaml --format text` produces a correct report against the fixture server |
+| **P1** | Composer skeleton, `Config`, `Target`, `Http\Client`, `Http\Pool`, `Engine`, core checks, `Finding`, `Report` (text/json/markdown), `../../bin/php2scan` | `php2scan --config php2scan.yaml --format text` produces a correct report against the fixture server |
 | **P2** | `Ui\TuiRenderer` with live progress, scrollable findings, expanded reproduce view, key handling | TUI renders and scrolls on a real terminal; `--no-tui` still works |
 | **P3** | Crawler + `SqlInjection`, `ReflectedXss`, `LocalFileInclusion`, gated behind `--verify` | injection checks confirmed against fixture server; verification off by default |
 | **P4** *(optional)* | Optional `nuclei` passthrough for breadth | not committed unless requested |

@@ -8,7 +8,7 @@
 
 **Tech Stack:** PHP ≥ 8.2 · Composer 2 · `guzzlehttp/guzzle` 8.3 · `symfony/console` 7 · `symfony/yaml` 7 · `symfony/dom-crawler` 7 (phase 3) · `aidantwoods/secureheaders` 2.0.1 · `php-tui/php-tui` 0.2.1 · PHPUnit 11
 
-**Spec:** `specs/2026-10-22-php2scan-design.md`
+**Spec:** `../specs`
 
 ---
 
@@ -304,7 +304,6 @@ It must contain exactly:
 /.idea/
 /.phpunit.cache/
 /.phpunit.result.cache
-/.superpowers/
 .DS_Store
 ```
 
@@ -526,7 +525,7 @@ git commit -m "feat: severity enum and finding value object"
 - Consumes: `Php2Scan\Severity` (Task 2).
 - Produces:
   - `Php2Scan\Target` — `final class Target` with `public readonly` promoted properties `string $url`, `?string $vhost`, `array $paths` (`list<string>`), `bool $staging`; methods `host(): string` (host component of `$url`), `requestHeaders(): array` (returns `['Host' => $vhost]` when `$vhost` is not null, otherwise `[]`), `label(): string` (returns `$this->vhost ?? $this->host()`).
-  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
+  - `Php2Scan\Config` — `final class Config` with `public readonly` promoted properties `array $targets` (`list<Target>`), `array $checks` (`array<string,bool>`), `int $concurrency`, `int $timeout`, `int $connectTimeout`, `int $delayMs`, `string $userAgent`, `bool $verify`, `Severity $minSeverity`, `string $format`, `string $reportDir`; static `fromFile(string $path): self`; static `fromArray(array $data, string $baseDir = ''): self`; `checkEnabled(string $id): bool`; `enabledChecks(): array` returning the enabled check ids in declaration order.
 
 - [ ] **Step 1: Write the failing test `tests/Unit/ConfigTest.php`**
 
@@ -720,13 +719,13 @@ final class Config
             throw new \InvalidArgumentException(sprintf('Config file "%s" is empty or malformed.', $path));
         }
 
-        return self::fromArray($parsed);
+        return self::fromArray($parsed, dirname($path));
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public static function fromArray(array $data): self
+    public static function fromArray(array $data, string $baseDir = ''): self
     {
         $targets = self::parseTargets($data['targets'] ?? []);
         $checks = self::parseChecks($data['checks'] ?? []);
@@ -1001,18 +1000,18 @@ namespace Php2Scan;
 final class PhpVersionDb
 {
     /**
-     * @var array<string, string>
+     * @param array<string, string> $fixed
+     * @param list<string>          $cves
      */
-    private readonly array $fixed;
+    public function __construct(
+        private readonly string $advisory,
+        private readonly array $fixed,
+        private readonly array $cves,
+        private readonly string $dataFile,
+    ) {
+    }
 
-    /**
-     * @var list<string>
-     */
-    private readonly array $cves;
-
-    private readonly string $advisory;
-
-    public function __construct(private readonly string $dataFile)
+    public static function fromFile(string $dataFile): self
     {
         $raw = @file_get_contents($dataFile);
         if ($raw === false) {
@@ -1021,14 +1020,12 @@ final class PhpVersionDb
 
         $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
-        $this->advisory = (string) ($data['advisory'] ?? 'PHP2Shell');
-        $this->fixed = (array) ($data['fixed'] ?? []);
-        $this->cves = array_values((array) ($data['cves'] ?? []));
-    }
-
-    public static function fromFile(string $dataFile): self
-    {
-        return new self($dataFile);
+        return new self(
+            advisory: (string) ($data['advisory'] ?? 'PHP2Shell'),
+            fixed: (array) ($data['fixed'] ?? []),
+            cves: array_values((array) ($data['cves'] ?? [])),
+            dataFile: $dataFile,
+        );
     }
 
     public function advisoryName(): string
@@ -3367,7 +3364,9 @@ public function __construct(
 // if ($cert === null) { return []; }
 ```
 
-Add these three methods to the same `TlsTest` class:
+The test then passes a resolver closure returning `['validFrom' => time() - 86400 * 365, 'validTo' => time() - 86400, 'subject' => 'CN=expired.example.com']`.
+
+Use these test methods:
 
 ```php
     public function testAnExpiredCertificateIsCritical(): void
@@ -5358,9 +5357,9 @@ git commit -m "feat: parameter crawler for verification checks"
 - Create: `src/Check/SqlInjection.php`
 - Create: `src/Check/ReflectedXss.php`
 - Create: `src/Check/LocalFileInclusion.php`
-- Create: `data/repro/sql_injection.md`
-- Create: `data/repro/reflected_xss.md`
-- Create: `data/repro/local_file_inclusion.md`
+- Create: `data/repro/sqli.md`
+- Create: `data/repro/xss.md`
+- Create: `data/repro/lfi.md`
 - Test: `tests/Unit/InjectionChecksTest.php`
 
 **Interfaces:**
@@ -5808,7 +5807,7 @@ final class LocalFileInclusion extends ParameterProbe
 
 - [ ] **Step 7: Create the reproduce files**
 
-`data/repro/sql_injection.md`:
+`data/repro/sqli.md`:
 
 ```
 curl -sS -o /dev/null -w '%{{http_code}} %{{size_download}}\n' '{url}'
@@ -5817,14 +5816,14 @@ curl -sS -o /dev/null -w '%{{http_code}} %{{size_download}}\n' '{url}&q=%27'
 # the quote changes the response, which means the parameter reaches the database
 ```
 
-`data/repro/reflected_xss.md`:
+`data/repro/xss.md`:
 
 ```
 curl -sS '{url}&q=php2scanmarker' | grep -o 'php2scanmarker'
 # the marker comes back unencoded, so a script tag would execute
 ```
 
-`data/repro/local_file_inclusion.md`:
+`data/repro/lfi.md`:
 
 ```
 curl -sS '{url}&file=../../../../etc/passwd' | head -3
@@ -5841,7 +5840,7 @@ The tests above inject the parameter map and queue the baseline and mutated resp
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/Check/ParameterProbe.php src/Check/SqlInjection.php src/Check/ReflectedXss.php src/Check/LocalFileInclusion.php data/repro/sql_injection.md data/repro/reflected_xss.md data/repro/local_file_inclusion.md tests/Unit/InjectionChecksTest.php
+git add src/Check/ParameterProbe.php src/Check/SqlInjection.php src/Check/ReflectedXss.php src/Check/LocalFileInclusion.php data/repro/sqli.md data/repro/xss.md data/repro/lfi.md tests/Unit/InjectionChecksTest.php
 git commit -m "feat: opt-in injection verification checks"
 ```
 
