@@ -18,5 +18,8 @@ final class Finding
         public readonly string $exploit,
         public readonly array $reproduce,
     ) {
+        if (trim($exploit) === '') {
+            throw new \InvalidArgumentException('A finding must carry a non-empty exploit sentence.');
+        }
     }
 }

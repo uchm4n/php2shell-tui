@@ -54,13 +54,13 @@ final class Config
             throw new \InvalidArgumentException(sprintf('Config file "%s" is empty or malformed.', $path));
         }
 
-        return self::fromArray($parsed, dirname($path));
+        return self::fromArray($parsed);
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    public static function fromArray(array $data, string $baseDir = ''): self
+    public static function fromArray(array $data): self
     {
         $targets = self::parseTargets($data['targets'] ?? []);
         $checks = self::parseChecks($data['checks'] ?? []);

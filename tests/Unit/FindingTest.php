@@ -35,6 +35,18 @@ final class FindingTest extends TestCase
         self::assertNotSame('', trim($finding->exploit));
     }
 
+    public function testItRejectsAnEmptyExploitSentence(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Finding('x', 't', Severity::Low, 'host', 'e', '', ['step']);
+    }
+
+    public function testItRejectsAWhitespaceOnlyExploitSentence(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Finding('x', 't', Severity::Low, 'host', 'e', "  \n\t ", ['step']);
+    }
+
     public function testItIsImmutable(): void
     {
         $finding = new Finding('x', 't', Severity::Low, 'host', 'e', 'sentence', ['step']);
