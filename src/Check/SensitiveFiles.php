@@ -16,6 +16,7 @@ final class SensitiveFiles implements Check
     private const HIGH = [
         '.env', '.env.local', '.env.production', '.git/config', '.git/HEAD',
         '.aws/credentials', 'id_rsa', '.npmrc', 'backup.zip', 'dump.sql',
+        'adminer.php', 'phpmyadmin/',
     ];
 
     private const MEDIUM = [

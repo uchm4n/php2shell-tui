@@ -54,6 +54,21 @@ final class SensitiveFilesTest extends TestCase
         self::assertSame(Severity::Medium, $findings[0]->severity);
     }
 
+    public function testAnExposedDatabaseAdminConsoleIsHigh(): void
+    {
+        $adminer = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/adminer.php' => new Response(200, [], '<?php // adminer'),
+        ]);
+        $phpmyadmin = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/phpmyadmin/' => new Response(200, [], '<html>phpMyAdmin</html>'),
+        ]);
+
+        self::assertCount(1, $adminer);
+        self::assertSame(Severity::High, $adminer[0]->severity);
+        self::assertCount(1, $phpmyadmin);
+        self::assertSame(Severity::High, $phpmyadmin[0]->severity);
+    }
+
     public function testEveryFindingCarriesAReproduceStep(): void
     {
         $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
