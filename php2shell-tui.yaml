@@ -25,9 +25,9 @@ poc:
   guess: true                         # try the ordered list; still requires --verify
   arch: any                           # any | amd64 | aarch64
   workers: 150                        # prefork workers to pin; set to the target's actual count
-  max_attempts: 5                     # stop after this many profiles; raise to cover the whole list
-  total_timeout: 300                  # seconds across all attempts
-  timeout: 180                        # seconds per attempt
+  max_attempts: 2                     # stop after this many profiles; raise to cover the whole list
+  total_timeout: 100                  # seconds across all attempts
+  timeout: 10                         # seconds per attempt
   max_workers: 150                    # refuse a profile above this pin count
   profiles:
     - php-8.4.26-apache-bookworm-amd64

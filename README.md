@@ -37,7 +37,6 @@ targets:
   
   - url: https://legacy.example4.com
     paths: ["/wp-content/uploads"]
-    staging: true
 
   - url: https://legacy.example5.com
     paths: [ "/admin", "/wp-admin", "/login" ]
@@ -45,11 +44,9 @@ targets:
   - url: https://203.0.113.10/
     vhost: legacy.example.com        # Host: header to send to that IP
     paths: ["/wp-content/uploads"]   # extra directories to check for webshells
-    staging: true                    # no --yes prompt for --verify
 
   # Optional real-server check. No POST is sent without --verify.
   - url: https://app.example.com/
-    staging: true
     post_path: /index.php
 
 checks:
@@ -127,8 +124,7 @@ run it from a vantage point that can reach the application.
 stay off until `--verify`:
 
 ```bash
-bin/php2shell-tui scan --verify          # asks before probing hosts not marked staging: true
-bin/php2shell-tui scan --verify --yes    # no prompt
+bin/php2shell-tui scan --verify          # --verify is the explicit authorization
 ```
 
 Rails: the full chain pins `workers - 1` connections plus four chain requests. Hosts outside the
@@ -166,7 +162,7 @@ HTTPS is attempted with verified TLS, but the verified transport is HTTP; treat 
 experimental. FPM is refused because the verified chain is mod_php only.
 
 ```sh
-bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify --yes
+bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify
 ```
 
 ## Development

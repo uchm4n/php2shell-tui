@@ -33,7 +33,6 @@ use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
 use Php2ShellTui\ScanRestart;
 use Php2ShellTui\ScanResult;
-use Php2ShellTui\Target;
 use Php2ShellTui\Ui\PlainRenderer;
 use Php2ShellTui\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -42,7 +41,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Question\ConfirmationQuestion;
 
 #[AsCommand(name: 'scan', description: 'Scan the configured hosts for security exposure')]
 final class ScanCommand extends Command
@@ -53,8 +51,8 @@ final class ScanCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to the configuration file', 'php2shell-tui.yaml')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format: tui, text, json, markdown', '')
             ->addOption('no-tui', null, InputOption::VALUE_NONE, 'Never use the interactive interface')
-            ->addOption('verify', null, InputOption::VALUE_NONE, 'Run the proof-of-concept requests')
-            ->addOption('yes', 'y', InputOption::VALUE_NONE, 'Do not ask for confirmation')
+            ->addOption('verify', null, InputOption::VALUE_NONE, 'Run the proof-of-concept requests (explicit authorization)')
+            ->addOption('yes', 'y', InputOption::VALUE_NONE, 'Deprecated; accepted for compatibility (--verify is the confirmation)')
             ->addOption('output-dir', null, InputOption::VALUE_REQUIRED, 'Directory for the written report');
     }
 
@@ -142,43 +140,6 @@ final class ScanCommand extends Command
             $registry = new Registry($checks);
 
             $engine = new Engine($pool, $registry);
-
-            $php2shellActive = $config->checkEnabled('php2shell')
-                && (($config->pocGuess && $config->pocProfiles !== [])
-                    || array_filter($config->targets, static fn (Target $target): bool => $target->pocProfile !== null) !== []);
-
-            if ($verify && ($config->checkEnabled('injection') || $php2shellActive) && !$input->getOption('yes')) {
-                $needsConfirmation = false;
-                foreach ($config->targets as $target) {
-                    if (!$target->staging) {
-                        $needsConfirmation = true;
-                        break;
-                    }
-                }
-
-                if ($needsConfirmation) {
-                    if (!$input->isInteractive()) {
-                        $output->writeln('<comment>Aborted - verification requires --yes when the input is not interactive.</comment>');
-
-                        return 2;
-                    }
-
-                    $confirmed = $this->getHelper('question')->ask(
-                        $input,
-                        $output,
-                        new ConfirmationQuestion(
-                            'Verification sends proof-of-concept requests. PHP2Shell pins workers, sends large bodies, and writes a proof file; guess mode may try several build profiles in order. Hosts not marked as staging need confirmation. Continue? [y/N] ',
-                            false
-                        )
-                    );
-
-                    if (!$confirmed) {
-                        $output->writeln('<comment>Aborted - verification requires --yes to skip this prompt.</comment>');
-
-                        return 2;
-                    }
-                }
-            }
 
             if ($format === 'tui') {
                 $renderer = new TuiRenderer();

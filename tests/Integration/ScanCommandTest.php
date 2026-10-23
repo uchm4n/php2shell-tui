@@ -8,7 +8,6 @@ use PHPUnit\Framework\TestCase;
 use Php2ShellTui\Application;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
-use Symfony\Component\Console\Tester\ApplicationTester;
 use Symfony\Component\Yaml\Yaml;
 
 final class ScanCommandTest extends TestCase
@@ -125,7 +124,6 @@ final class ScanCommandTest extends TestCase
                 '--config' => $this->injectionConfig($port),
                 '--format' => 'json',
                 '--verify' => true,
-                '--yes' => true,
             ]);
 
             self::assertSame(1, $code);
@@ -135,39 +133,6 @@ final class ScanCommandTest extends TestCase
         }
     }
 
-    public function testVerifyAbortsWithExitCodeTwoWhenThePromptIsDeclined(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            $code = $this->runInteractive([
-                'command' => 'scan',
-                '--config' => $this->injectionConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-            ], ['n']);
-
-            self::assertSame(2, $code);
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     * @param list<string> $answers
-     */
-    private function runInteractive(array $input, array $answers): int
-    {
-        $application = new Application();
-        $application->setAutoExit(false);
-        $application->setCatchExceptions(false);
-
-        $tester = new ApplicationTester($application);
-        $tester->setInputs($answers);
-
-        return $tester->run($input);
-    }
 
     /**
      * @return array{int, mixed}
@@ -236,92 +201,6 @@ final class ScanCommandTest extends TestCase
         }
     }
 
-    public function testThePhp2ShellGuessAloneRequiresConfirmation(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            [$code, $output] = $this->runCommand([
-                'command' => 'scan',
-                '--config' => $this->php2shellGuessConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-                '--no-interaction' => true,
-            ]);
-
-            self::assertSame(2, $code);
-            self::assertStringContainsString('requires --yes', $output);
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
-    public function testTheVerificationPromptWarnsAboutGuessMode(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            $application = new Application();
-            $application->setAutoExit(false);
-            $application->setCatchExceptions(false);
-            $tester = new ApplicationTester($application);
-            $tester->setInputs(['n']);
-            $tester->run([
-                'command' => 'scan',
-                '--config' => $this->php2shellGuessConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-            ]);
-
-            self::assertStringContainsString('guess mode', $tester->getDisplay());
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
-    public function testVerifyWithoutYesAbortsInNonInteractiveMode(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            [$code, $output] = $this->runCommand([
-                'command' => 'scan',
-                '--config' => $this->injectionConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-                '--no-interaction' => true,
-            ]);
-
-            self::assertSame(2, $code);
-            self::assertStringContainsString('requires --yes', $output);
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
-    public function testTheVerificationPromptWarnsAboutTheIntrusiveChain(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            $application = new Application();
-            $application->setAutoExit(false);
-            $application->setCatchExceptions(false);
-            $tester = new ApplicationTester($application);
-            $tester->setInputs(['n']);
-            $tester->run([
-                'command' => 'scan',
-                '--config' => $this->php2shellConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-            ]);
-
-            self::assertStringContainsString('pins workers', $tester->getDisplay());
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
     public function testThePhp2ShellDoesNotRunWithoutVerify(): void
     {
         [$port, $process] = $this->fixture();
@@ -335,26 +214,6 @@ final class ScanCommandTest extends TestCase
 
             self::assertSame(0, $code);
             self::assertStringNotContainsString('php2shell-rce', $output);
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
-    public function testThePhp2ShellAloneRequiresConfirmation(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            [$code, $output] = $this->runCommand([
-                'command' => 'scan',
-                '--config' => $this->php2shellConfig($port),
-                '--format' => 'json',
-                '--verify' => true,
-                '--no-interaction' => true,
-            ]);
-
-            self::assertSame(2, $code);
-            self::assertStringContainsString('requires --yes', $output);
         } finally {
             self::killServer($process, $port);
         }
