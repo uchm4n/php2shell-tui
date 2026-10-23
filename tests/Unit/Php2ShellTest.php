@@ -213,4 +213,26 @@ final class Php2ShellTest extends TestCase
         self::assertCount(1, $findings);
         self::assertStringContainsString('profile not found', $findings[0]->evidence);
     }
+
+    public function testGuessModeReportsVerificationProgress(): void
+    {
+        $events = [];
+        $progress = static function (string $label, string $phase, int $done, int $total) use (&$events): void {
+            if ($phase === 'verify') {
+                $events[] = [$done, $total];
+            }
+        };
+        $runner = static fn (Target $target, Profile $profile, ?int $workers, int $timeout): PocResult => new PocResult(false, 'no leak');
+
+        $guess = new GuessPlan([
+            'php-8.4.26-apache-bookworm-amd64',
+            'php-8.5.11-apache-bookworm-amd64',
+        ], maxAttempts: 2);
+        $check = new Php2Shell($this->reproduce, true, new Php2ShellPoc(), $this->pocDir, $guess, null, $runner);
+        $check->setProgress($progress, null);
+
+        $check->analyze(new Target('https://app.example/'), []);
+
+        self::assertSame([[1, 2], [2, 2]], $events);
+    }
 }

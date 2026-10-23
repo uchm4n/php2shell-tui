@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Php2ShellTui;
 
+use Php2ShellTui\Check\ProgressAware;
 use Php2ShellTui\Check\Registry;
 use Php2ShellTui\Http\Pool;
 use Psr\Http\Message\ResponseInterface;
@@ -138,6 +139,10 @@ final class Engine
             $controlHash = self::controlHash($responses, $controlIndex[$index] ?? []);
 
             foreach ($checks as $check) {
+                if ($check instanceof ProgressAware) {
+                    $check->setProgress($onProgress, $onTick);
+                }
+
                 $perCheck = [];
 
                 foreach ($pathsByCheck[$index][$check->id()] ?? [] as $path) {

@@ -15,8 +15,11 @@ use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
 
-final class Php2Shell implements Check
+final class Php2Shell implements Check, ProgressAware
 {
+    private ?\Closure $onProgress = null;
+    private ?\Closure $onTick = null;
+
     public function __construct(
         private readonly Reproduce $reproduce,
         private readonly bool $verify,
@@ -37,6 +40,12 @@ final class Php2Shell implements Check
     public function paths(Target $target, ?ResponseInterface $baseline): array
     {
         return [];
+    }
+
+    public function setProgress(?callable $onProgress, ?callable $onTick): void
+    {
+        $this->onProgress = $onProgress === null ? null : \Closure::fromCallable($onProgress);
+        $this->onTick = $onTick === null ? null : \Closure::fromCallable($onTick);
     }
 
     public function analyze(Target $target, array $responses): array
@@ -72,7 +81,8 @@ final class Php2Shell implements Check
             return [$this->pocInconclusive($target, 'poc_profile was not found')];
         }
 
-        $result = $this->poc->run($target, $profile, false, $this->workers);
+        $this->reportVerify($target, 1, 1);
+        $result = $this->poc->run($target, $profile, false, $this->workers, null, $this->onTick);
 
         if (!$result->confirmed) {
             return [$this->pocInconclusive($target, $result->reason)];
@@ -90,6 +100,7 @@ final class Php2Shell implements Check
         $started = microtime(true);
         $tried = 0;
         $log = [];
+        $planned = max(1, min(count($this->guess->profiles), $this->guess->maxAttempts));
 
         foreach ($this->guess->profiles as $id) {
             $elapsed = microtime(true) - $started;
@@ -121,13 +132,14 @@ final class Php2Shell implements Check
                 continue;
             }
 
+            $this->reportVerify($target, $tried + 1, $planned);
             $tried++;
             $remaining = max(1, (int) ceil($this->guess->totalTimeout - $elapsed));
 
             try {
                 $result = $this->runner !== null
                     ? ($this->runner)($target, $profile, $this->guess->workers, $remaining)
-                    : $this->poc->run($target, $profile, true, $this->guess->workers, $remaining);
+                    : $this->poc->run($target, $profile, true, $this->guess->workers, $remaining, $this->onTick);
             } catch (\Throwable $e) {
                 $log[] = $profile->id() . ': runner failed: ' . $e->getMessage();
                 break;
@@ -164,6 +176,13 @@ final class Php2Shell implements Check
             $target,
             sprintf('tried %d profile(s): %s', $tried, implode('; ', $log)),
         )];
+    }
+
+    private function reportVerify(Target $target, int $done, int $total): void
+    {
+        if ($this->onProgress !== null) {
+            ($this->onProgress)($target->label(), 'verify', $done, $total);
+        }
     }
 
     private function loadProfile(string $id): ?Profile

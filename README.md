@@ -99,8 +99,9 @@ output:
 
 The results stay on screen when the scan finishes: the target table shows the final state of every
 host, the findings pane stays interactive, and a failure is shown in a red banner instead of
-dropping back to the shell. Press `q`, `Esc` or `Ctrl-C` to close the TUI (`j`/`k` or arrows move,
-`Enter` expands a finding). The report is still written to `report_dir`.
+dropping back to the shell. Press `q`, `Esc` or `Ctrl-C` to close the TUI; press `r` to restart the
+whole scan (`j`/`k` or arrows move, `Enter` expands a finding). The report is still written to
+`report_dir`.
 
 Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 
@@ -114,6 +115,9 @@ Each attempt pins `workers - 1` prefork connections, sends the real PHP2Shell ch
 relative proof file, and fetches both `<post_path directory>/<file>` and `/<file>`. The scanner
 emits **Critical** only when the exact unique marker is returned. A failed guess is reported as
 “proof not obtained,” never as “safe.”
+
+While the proof runs, the TUI shows `◐ verify 2/5 · 23s` and the title says `verifying 2/5`. Press
+`r` at any time to abort the current run and start a fresh scan.
 
 **Known limitation**: a baseline response of `403`, `407`, `429`, or `503` marks the target unscannable
 and skips every check, including the active proof. Use a baseline path the scanner can reach, or
@@ -153,11 +157,6 @@ The shipped `poc.profiles` list also includes 13 builds with public libphp offse
 `devploit/php2shell` offset inventory (MIT). They are marked `rce_verified: false` and use the
 8.4.26 stage baseline; they are guesses, not verified profiles. Most are aarch64, so amd64
 coverage beyond 8.4.26 is currently limited to 8.5.11. There are no public offsets for 5.4–7.3.
-
-`poc.guess: false` keeps the list inert. Flipping it to `true` and passing `--verify` tries the
-profiles in order. Each guess can be disruptive: a wrong offset may crash Apache children.
-Keep `staging: false` or omit it unless the host is explicitly authorized, and do not enable
-guess mode when the version check already reports the target as patched.
 
 The proof writes a short relative file in the PHP working directory and fetches both the script
 directory and webroot candidates. If neither returns the marker, the finding says “proof not

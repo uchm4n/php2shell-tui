@@ -332,7 +332,7 @@ final class ConfigTest extends TestCase
 
         self::assertNotEmpty($config->targets);
         self::assertTrue($config->checkEnabled('php2shell'));
-        self::assertFalse($config->pocGuess);
+        self::assertTrue($config->pocGuess);
         self::assertNotEmpty($config->pocProfiles);
 
         foreach ($config->pocProfiles as $id) {

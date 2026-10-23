@@ -93,16 +93,16 @@ final class TuiRendererTest extends TestCase
         self::assertTrue($renderer->isQuitRequested());
     }
 
-    public function testTheRKeyTogglesTheExpandedView(): void
+    public function testTheRKeyRequestsARestart(): void
     {
         $backend = new DummyBackend(100, 30);
         $renderer = new TuiRenderer($backend);
         $renderer->start(['a.example.com']);
-        $renderer->setFindings([new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s'])]);
 
+        self::assertFalse($renderer->isRestartRequested());
         $renderer->handleKey('r');
-        $renderer->draw();
-        self::assertStringContainsString('$ s', $backend->toString());
+        self::assertTrue($renderer->isRestartRequested());
+        self::assertTrue($renderer->isQuitRequested());
     }
 
     public function testTheCompletedViewShowsTheSummaryAndFinalStates(): void
@@ -236,14 +236,68 @@ final class TuiRendererTest extends TestCase
         self::assertTrue($renderer->isQuitRequested());
     }
 
-    public function testTheFooterShowsTheQuitHint(): void
+    public function testTheFooterShowsTheQuitAndRestartHints(): void
     {
         $backend = new DummyBackend(100, 30);
         $renderer = new TuiRenderer($backend);
         $renderer->start(['a.example.com']);
         $renderer->draw();
 
-        self::assertStringContainsString('q quit', $backend->toString());
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('q quit', $frame);
+        self::assertStringContainsString('r restart', $frame);
+    }
+
+    public function testTheVerifyPhaseShowsTheAttemptAndElapsedTime(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->update('a.example.com', 'probe', 10, 10);
+        $renderer->setVerify('a.example.com', 2, 5);
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertStringContainsString('verifying 2/5', $frame);
+        self::assertStringContainsString('verify 2/5', $frame);
+        self::assertStringContainsString('100%', $frame);
+    }
+
+    public function testRestartResetsTheView(): void
+    {
+        $backend = new DummyBackend(100, 30);
+        $renderer = new TuiRenderer($backend);
+        $renderer->start(['a.example.com']);
+        $renderer->setFindings([
+            new Finding('one', 'First', Severity::High, 'a.example.com', 'e', 'x', ['s']),
+        ]);
+        $renderer->finish([], [], 4.2);
+        $renderer->handleKey('r');
+
+        $renderer->restart(['a.example.com']);
+        $renderer->draw();
+
+        $frame = $backend->toString();
+
+        self::assertFalse($renderer->isRestartRequested());
+        self::assertStringContainsString('No findings yet.', $frame);
+        self::assertStringContainsString('pending', $frame);
+        self::assertStringNotContainsString('complete in', $frame);
+        self::assertStringNotContainsString('First', $frame);
+    }
+
+    public function testWaitForQuitReturnsWhenARestartIsRequested(): void
+    {
+        $events = new FakeEventProvider([CharKeyEvent::new('r')]);
+        $renderer = new TuiRenderer(new DummyBackend(100, 30), $events);
+        $renderer->start(['a.example.com']);
+        $renderer->finish([], [], 1.0);
+
+        $renderer->waitForQuit();
+
+        self::assertTrue($renderer->isRestartRequested());
     }
 
     public function testTheEscKeyRequestsAQuit(): void

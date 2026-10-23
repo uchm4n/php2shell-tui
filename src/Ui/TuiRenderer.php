@@ -67,6 +67,7 @@ final class TuiRenderer
     private int $selected = 0;
     private bool $expanded = false;
     private bool $quit = false;
+    private bool $restart = false;
     private bool $complete = false;
     private bool $stopped = false;
     private ?int $done = null;
@@ -74,7 +75,13 @@ final class TuiRenderer
     private int $unreachableCount = 0;
     private int $unscannableCount = 0;
     private float $duration = 0.0;
+    private float $lastDraw = 0.0;
     private ?string $error = null;
+
+    /**
+     * @var array<string, array{done: int, total: int, started: float}>
+     */
+    private array $verify = [];
 
     private Display $display;
     private ?Terminal $terminal = null;
@@ -100,20 +107,7 @@ final class TuiRenderer
      */
     public function start(array $targets): void
     {
-        $this->targets = $targets;
-        $this->phases = array_fill_keys($targets, 'pending');
-        $this->findings = [];
-        $this->selected = 0;
-        $this->expanded = false;
-        $this->quit = false;
-        $this->complete = false;
-        $this->stopped = false;
-        $this->done = null;
-        $this->total = null;
-        $this->unreachableCount = 0;
-        $this->unscannableCount = 0;
-        $this->duration = 0.0;
-        $this->error = null;
+        $this->resetState($targets);
 
         if ($this->terminal === null) {
             return;
@@ -124,11 +118,66 @@ final class TuiRenderer
         $this->terminal->enableRawMode();
     }
 
+    /**
+     * Resets the view for another scan without re-entering the alternate
+     * screen or raw mode.
+     *
+     * @param list<string> $targets
+     */
+    public function restart(array $targets): void
+    {
+        $this->resetState($targets);
+        $this->draw();
+    }
+
+    /**
+     * @param list<string> $targets
+     */
+    private function resetState(array $targets): void
+    {
+        $this->targets = $targets;
+        $this->phases = array_fill_keys($targets, 'pending');
+        $this->findings = [];
+        $this->selected = 0;
+        $this->expanded = false;
+        $this->quit = false;
+        $this->restart = false;
+        $this->complete = false;
+        $this->stopped = false;
+        $this->done = null;
+        $this->total = null;
+        $this->unreachableCount = 0;
+        $this->unscannableCount = 0;
+        $this->duration = 0.0;
+        $this->lastDraw = 0.0;
+        $this->error = null;
+        $this->verify = [];
+    }
+
     public function update(string $targetLabel, string $phase, ?int $done = null, ?int $total = null): void
     {
         $this->phases[$targetLabel] = $phase;
         $this->done = $done ?? $this->done;
         $this->total = $total ?? $this->total;
+
+        if ($phase !== 'verify') {
+            unset($this->verify[$targetLabel]);
+        }
+    }
+
+    /**
+     * Shows the active build guess without resetting the request gauge.
+     */
+    public function setVerify(string $targetLabel, int $done, int $total): void
+    {
+        $started = $this->verify[$targetLabel]['started'] ?? microtime(true);
+
+        $this->phases[$targetLabel] = 'verify';
+        $this->verify[$targetLabel] = [
+            'done' => max(0, $done),
+            'total' => max(1, $total),
+            'started' => $started,
+        ];
     }
 
     /**
@@ -158,6 +207,7 @@ final class TuiRenderer
         $this->duration = $duration;
         $this->unreachableCount = count($unreachable);
         $this->unscannableCount = count($unscannable);
+        $this->verify = [];
 
         foreach ($this->targets as $target) {
             $this->phases[$target] = 'done';
@@ -205,8 +255,19 @@ final class TuiRenderer
         return $this->quit;
     }
 
+    public function isRestartRequested(): bool
+    {
+        return $this->restart;
+    }
+
     public function requestQuit(): void
     {
+        $this->quit = true;
+    }
+
+    public function requestRestart(): void
+    {
+        $this->restart = true;
         $this->quit = true;
     }
 
@@ -214,9 +275,10 @@ final class TuiRenderer
     {
         match ($key) {
             'q' => $this->quit = true,
+            'r' => $this->requestRestart(),
             'j' => $this->move(1),
             'k' => $this->move(-1),
-            'r', "\n" => $this->toggleExpanded(),
+            "\n" => $this->toggleExpanded(),
             default => null,
         };
     }
@@ -252,7 +314,7 @@ final class TuiRenderer
                 $this->handleKey(match ($event->code) {
                     KeyCode::Down => 'j',
                     KeyCode::Up => 'k',
-                    KeyCode::Enter => 'r',
+                    KeyCode::Enter => "\n",
                     KeyCode::Esc => 'q',
                     default => '',
                 });
@@ -263,7 +325,23 @@ final class TuiRenderer
     }
 
     /**
-     * Keeps the results (or an error) on screen until the operator quits.
+     * Polls keys and redraws at a rate that keeps the verify timer moving
+     * without repainting for every socket tick.
+     */
+    public function tick(): void
+    {
+        $this->pollKeys();
+
+        $now = microtime(true);
+
+        if ($now - $this->lastDraw >= 0.25) {
+            $this->draw();
+        }
+    }
+
+    /**
+     * Keeps the results (or an error) on screen until the operator quits or
+     * asks for another scan.
      */
     public function waitForQuit(): void
     {
@@ -295,6 +373,7 @@ final class TuiRenderer
      */
     public function draw(): void
     {
+        $this->lastDraw = microtime(true);
         $this->renderFrame();
     }
 
@@ -331,6 +410,9 @@ final class TuiRenderer
         return ParagraphWidget::fromLines(Line::fromSpans(
             Span::styled(' q ', $key),
             Span::styled('quit', $dim),
+            Span::styled('  |  ', $dim),
+            Span::styled('r', $key),
+            Span::styled(' restart', $dim),
             Span::styled('  |  ', $dim),
             Span::styled('j/k', $key),
             Span::styled(' or ', $dim),
@@ -377,7 +459,7 @@ final class TuiRenderer
             $phase = $this->phases[$target] ?? 'pending';
             $rows[] = TableRow::fromCells(
                 self::cell($target, Style::default()->fg($this->targetColor($phase))),
-                self::cell($this->phaseLabel($phase), $this->phaseStyle($phase)),
+                self::cell($this->phaseLabel($target, $phase), $this->phaseStyle($phase)),
             );
         }
 
@@ -434,6 +516,13 @@ final class TuiRenderer
 
         if ($this->complete) {
             return sprintf('PHP2Shell Scan — complete in %.1fs', $this->duration);
+        }
+
+        if ($this->verify !== []) {
+            $verify = reset($this->verify);
+            $elapsed = max(0, (int) (microtime(true) - $verify['started']));
+
+            return sprintf('PHP2Shell Scan — verifying %d/%d · %ds', $verify['done'], $verify['total'], $elapsed);
         }
 
         if ($this->total !== null) {
@@ -496,7 +585,9 @@ final class TuiRenderer
         $lines[] = Line::fromSpans(
             Span::styled('Press ', Style::default()->fg(AnsiColor::Gray)),
             Span::styled('q', Style::default()->fg(AnsiColor::LightCyan)->addModifier(Modifier::BOLD)),
-            Span::styled(' to exit.', Style::default()->fg(AnsiColor::Gray)),
+            Span::styled(' to exit or ', Style::default()->fg(AnsiColor::Gray)),
+            Span::styled('r', Style::default()->fg(AnsiColor::LightCyan)->addModifier(Modifier::BOLD)),
+            Span::styled(' to retry.', Style::default()->fg(AnsiColor::Gray)),
         );
 
         return BlockWidget::default()
@@ -604,11 +695,27 @@ final class TuiRenderer
             return AnsiColor::Red;
         }
 
+        if ($this->verify !== []) {
+            return AnsiColor::Yellow;
+        }
+
         return $this->complete ? AnsiColor::Green : AnsiColor::LightBlue;
     }
 
-    private function phaseLabel(string $phase): string
+    private function phaseLabel(string $target, string $phase): string
     {
+        if ($phase === 'verify') {
+            $verify = $this->verify[$target] ?? null;
+
+            if ($verify === null) {
+                return '◐ verify';
+            }
+
+            $elapsed = max(0, (int) (microtime(true) - $verify['started']));
+
+            return sprintf('◐ verify %d/%d · %ds', $verify['done'], $verify['total'], $elapsed);
+        }
+
         return match ($phase) {
             'pending' => '○ pending',
             'baseline' => '◔ baseline',
@@ -628,6 +735,7 @@ final class TuiRenderer
             'baseline' => AnsiColor::Cyan,
             'probe' => AnsiColor::LightBlue,
             'analyse' => AnsiColor::Yellow,
+            'verify' => AnsiColor::Yellow,
             'done' => AnsiColor::Green,
             'unreachable' => AnsiColor::Red,
             'blocked' => AnsiColor::Magenta,

@@ -9,16 +9,19 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\Promise;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use Php2ShellTui\Check\Check;
+use Php2ShellTui\Check\ProgressAware;
 use Php2ShellTui\Check\Registry;
 use Php2ShellTui\Config;
 use Php2ShellTui\Engine;
 use Php2ShellTui\Finding;
 use Php2ShellTui\Http\Client;
 use Php2ShellTui\Http\Pool;
+use Php2ShellTui\ScanCancelled;
 use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
 use Psr\Http\Message\RequestInterface;
@@ -269,6 +272,79 @@ final class EngineTest extends TestCase
         sort($done);
         self::assertSame([1, 2, 3, 4, 5, 6], $done);
         self::assertSame([6, 6, 6, 6, 6, 6], array_column($probeEvents, 'total'));
+    }
+
+    public function testAbortingAScanCancelsPendingRequests(): void
+    {
+        $pending = new Promise();
+        $handler = static fn (RequestInterface $request, array $options): PromiseInterface => $pending;
+        $client = new Client(new GuzzleClient([
+            'handler' => HandlerStack::create($handler),
+            'http_errors' => false,
+        ]), 0);
+        $pool = new Pool(new CurlMultiHandler(), $client);
+
+        try {
+            $pool->run(
+                [['url' => 'https://one.example/', 'headers' => []]],
+                null,
+                static function (): void {
+                    throw new ScanCancelled();
+                },
+            );
+
+            self::fail('the pool must propagate the cancel');
+        } catch (ScanCancelled) {
+            // Expected.
+        }
+
+        self::assertSame(PromiseInterface::REJECTED, $pending->getState());
+    }
+
+    public function testProgressAwareChecksReceiveTheCallbacks(): void
+    {
+        $check = new class implements Check, ProgressAware {
+            public ?\Closure $progress = null;
+            public ?\Closure $tick = null;
+
+            public function id(): string
+            {
+                return 'php_presence';
+            }
+
+            public function paths(Target $target, ?ResponseInterface $baseline): array
+            {
+                return [];
+            }
+
+            public function analyze(Target $target, array $responses): array
+            {
+                return [];
+            }
+
+            public function setProgress(?callable $onProgress, ?callable $onTick): void
+            {
+                $this->progress = $onProgress === null ? null : \Closure::fromCallable($onProgress);
+                $this->tick = $onTick === null ? null : \Closure::fromCallable($onTick);
+            }
+        };
+
+        $urls = [];
+        $engine = self::engine([$check], static fn (): ResponseInterface => new Response(200, [], 'ok'), $urls);
+
+        $engine->run(
+            Config::fromArray([
+                'targets' => ['https://one.example/'],
+                'checks' => ['php_presence' => true],
+            ]),
+            static function (string $label, string $phase, int $done, int $total): void {
+            },
+            static function (): void {
+            },
+        );
+
+        self::assertInstanceOf(\Closure::class, $check->progress);
+        self::assertInstanceOf(\Closure::class, $check->tick);
     }
 
     public function testACheckThatIsNotEnabledIsNeverRun(): void

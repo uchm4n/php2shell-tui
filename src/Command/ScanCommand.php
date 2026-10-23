@@ -31,6 +31,7 @@ use Php2ShellTui\Poc\GuessPlan;
 use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
+use Php2ShellTui\ScanRestart;
 use Php2ShellTui\ScanResult;
 use Php2ShellTui\Target;
 use Php2ShellTui\Ui\PlainRenderer;
@@ -181,56 +182,93 @@ final class ScanCommand extends Command
 
             if ($format === 'tui') {
                 $renderer = new TuiRenderer();
+                $targets = array_map(static fn ($t): string => $t->label(), $config->targets);
                 $result = null;
+                $path = null;
                 $error = null;
                 $cancelled = false;
 
                 try {
-                    $renderer->start(array_map(static fn ($t): string => $t->label(), $config->targets));
+                    $renderer->start($targets);
                     $renderer->draw();
 
-                    $result = $engine->run(
-                        $config,
-                        static function (string $label, string $phase, int $done, int $total) use ($renderer): void {
-                            $renderer->update($label, $phase, $done, $total);
-                            $renderer->pollKeys();
-                            $renderer->draw();
-                        },
-                        static function () use ($renderer): void {
-                            $renderer->pollKeys();
+                    while (true) {
+                        $restart = false;
 
-                            if ($renderer->isQuitRequested()) {
-                                throw new ScanCancelled();
+                        try {
+                            $result = $engine->run(
+                                $config,
+                                static function (string $label, string $phase, int $done, int $total) use ($renderer): void {
+                                    if ($phase === 'verify') {
+                                        $renderer->setVerify($label, $done, $total);
+                                    } else {
+                                        $renderer->update($label, $phase, $done, $total);
+                                    }
+
+                                    $renderer->pollKeys();
+                                    $renderer->draw();
+                                },
+                                static function () use ($renderer): void {
+                                    $renderer->tick();
+
+                                    if ($renderer->isRestartRequested()) {
+                                        throw new ScanRestart();
+                                    }
+
+                                    if ($renderer->isQuitRequested()) {
+                                        throw new ScanCancelled();
+                                    }
+                                },
+                            );
+
+                            $renderer->setFindings($result->findings);
+                            $renderer->finish(
+                                array_column($result->unreachable, 'target'),
+                                array_column($result->unscannable, 'target'),
+                                $result->duration,
+                            );
+
+                            $report = new Report($result, $config);
+                            $rendered = $report->render($format);
+                            $path = $this->writeReport($report, $format, $rendered, $input, $config);
+
+                            // Stay here until the operator quits or restarts, so
+                            // the results are read inside the TUI instead of being
+                            // dumped to the shell.
+                            $renderer->waitForQuit();
+                        } catch (ScanRestart) {
+                            $restart = true;
+                        } catch (ScanCancelled) {
+                            $cancelled = true;
+                            break;
+                        } catch (\Throwable $e) {
+                            try {
+                                $renderer->fail($e);
+                                $renderer->waitForQuit();
+                            } catch (\Throwable) {
+                                // The renderer itself is unusable; let the outer
+                                // handler restore the terminal and print the
+                                // original failure.
+                                throw $e;
                             }
-                        },
-                    );
 
-                    $renderer->setFindings($result->findings);
-                    $renderer->finish(
-                        array_column($result->unreachable, 'target'),
-                        array_column($result->unscannable, 'target'),
-                        $result->duration,
-                    );
+                            if (!$renderer->isRestartRequested()) {
+                                $error = $e;
+                                break;
+                            }
 
-                    $report = new Report($result, $config);
-                    $rendered = $report->render($format);
-                    $path = $this->writeReport($report, $format, $rendered, $input, $config);
+                            $restart = true;
+                        }
 
-                    // Stay here until the operator quits, so the results are read
-                    // inside the TUI instead of being dumped to the shell.
-                    $renderer->waitForQuit();
-                } catch (ScanCancelled) {
-                    $cancelled = true;
-                } catch (\Throwable $e) {
-                    $error = $e;
+                        if ($renderer->isRestartRequested()) {
+                            $restart = true;
+                        }
 
-                    try {
-                        $renderer->fail($e);
-                        $renderer->waitForQuit();
-                    } catch (\Throwable) {
-                        // The renderer itself is unusable; let the outer handler
-                        // restore the terminal and print the original failure.
-                        throw $e;
+                        if (!$restart) {
+                            break;
+                        }
+
+                        $renderer->restart($targets);
                     }
                 } finally {
                     $renderer->stop();
@@ -248,7 +286,13 @@ final class ScanCommand extends Command
                     return 2;
                 }
 
-                $this->note($output, sprintf('Report written to %s', $path));
+                if ($result === null) {
+                    $this->note($output, 'Scan did not complete.');
+
+                    return 2;
+                }
+
+                $this->note($output, sprintf('Report written to %s', (string) $path));
 
                 return $this->exitCode($result, $config);
             }

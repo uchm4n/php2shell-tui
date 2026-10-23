@@ -36,6 +36,7 @@ final class Pool
 
         $results = [];
         $promises = [];
+        $cancelling = false;
 
         // Requests to the same host are spaced by the client delay so a scan
         // never hammers a single origin.
@@ -53,13 +54,21 @@ final class Pool
             $promises[] = $this->client
                 ->getAsync($request['url'], $request['headers'], $sequence * $this->client->delayMs())
                 ->then(
-                    function (ResponseInterface $response) use (&$results, $index, $request, $onSettled): void {
+                    function (ResponseInterface $response) use (&$results, &$cancelling, $index, $request, $onSettled): void {
+                        if ($cancelling) {
+                            return;
+                        }
+
                         $results[$index] = ['url' => $request['url'], 'response' => $response, 'error' => null];
                         if ($onSettled !== null) {
                             $onSettled($request['url'], $response, null);
                         }
                     },
-                    function (\Throwable $e) use (&$results, $index, $request, $onSettled): void {
+                    function (\Throwable $e) use (&$results, &$cancelling, $index, $request, $onSettled): void {
+                        if ($cancelling) {
+                            return;
+                        }
+
                         $results[$index] = ['url' => $request['url'], 'response' => null, 'error' => $e->getMessage()];
                         if ($onSettled !== null) {
                             $onSettled($request['url'], null, $e->getMessage());
@@ -74,27 +83,49 @@ final class Pool
         // politeness delay, hence the small sleep when work is still pending.
         $queue = Utils::queue();
 
-        while (true) {
-            if ($onTick !== null) {
-                $onTick();
+        try {
+            while (true) {
+                if ($onTick !== null) {
+                    $onTick();
+                }
+
+                $this->handler->tick();
+                $queue->run();
+
+                $pending = false;
+                foreach ($promises as $promise) {
+                    if ($promise->getState() === PromiseInterface::PENDING) {
+                        $pending = true;
+                        break;
+                    }
+                }
+
+                if (!$pending) {
+                    break;
+                }
+
+                usleep(10_000);
             }
+        } finally {
+            // A TUI cancel/restart throws out of onTick(). Pending transfers
+            // must be cancelled or the reused multi handler keeps them alive.
+            $cancelling = true;
+            $cancelled = false;
 
-            $this->handler->tick();
-            $queue->run();
-
-            $pending = false;
             foreach ($promises as $promise) {
                 if ($promise->getState() === PromiseInterface::PENDING) {
-                    $pending = true;
-                    break;
+                    try {
+                        $promise->cancel();
+                        $cancelled = true;
+                    } catch (\Throwable) {
+                        // A rejected cancel must not hide the original abort.
+                    }
                 }
             }
 
-            if (!$pending) {
-                break;
+            if ($cancelled) {
+                $this->handler->tick();
             }
-
-            usleep(10_000);
         }
 
         return array_values($results);
