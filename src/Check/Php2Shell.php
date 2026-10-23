@@ -6,6 +6,8 @@ namespace Php2ShellTui\Check;
 
 use Php2ShellTui\Data\Reproduce;
 use Php2ShellTui\Finding;
+use Php2ShellTui\Http\Client;
+use Php2ShellTui\Poc\GuessPlan;
 use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Poc\PocResult;
 use Php2ShellTui\Poc\Profile;
@@ -20,6 +22,10 @@ final class Php2Shell implements Check
         private readonly bool $verify,
         private readonly ?Php2ShellPoc $poc = null,
         private readonly ?string $pocDir = null,
+        private readonly ?GuessPlan $guess = null,
+        private readonly ?Client $client = null,
+        private readonly ?\Closure $runner = null,
+        private readonly ?int $workers = null,
     ) {
     }
 
@@ -35,16 +41,29 @@ final class Php2Shell implements Check
 
     public function analyze(Target $target, array $responses): array
     {
-        if (!$this->verify || $target->pocProfile === null) {
+        if (!$this->verify) {
             return [];
         }
 
+        if ($target->pocProfile !== null) {
+            return $this->analyzeSingle($target);
+        }
+
+        if ($this->guess === null) {
+            return [];
+        }
+
+        return $this->analyzeGuess($target);
+    }
+
+    private function analyzeSingle(Target $target): array
+    {
         if ($this->poc === null) {
             return [$this->pocInconclusive($target, 'proof runner is not configured')];
         }
 
         try {
-            $profile = $this->profile($target);
+            $profile = $this->loadProfile((string) $target->pocProfile);
         } catch (\Throwable $e) {
             return [$this->pocInconclusive($target, 'profile is invalid: ' . $e->getMessage())];
         }
@@ -53,7 +72,7 @@ final class Php2Shell implements Check
             return [$this->pocInconclusive($target, 'poc_profile was not found')];
         }
 
-        $result = $this->poc->run($target, $profile);
+        $result = $this->poc->run($target, $profile, false, $this->workers);
 
         if (!$result->confirmed) {
             return [$this->pocInconclusive($target, $result->reason)];
@@ -62,14 +81,93 @@ final class Php2Shell implements Check
         return [$this->rceFinding($target, $profile, $result)];
     }
 
-    private function profile(Target $target): ?Profile
+    private function analyzeGuess(Target $target): array
     {
-        $id = $target->pocProfile;
-
-        if ($id === null) {
-            return null;
+        if ($this->poc === null) {
+            return [$this->pocInconclusive($target, 'proof runner is not configured')];
         }
 
+        $started = microtime(true);
+        $tried = 0;
+        $log = [];
+
+        foreach ($this->guess->profiles as $id) {
+            $elapsed = microtime(true) - $started;
+
+            if ($tried >= $this->guess->maxAttempts) {
+                $log[] = $id . ': skipped (attempt cap)';
+                break;
+            }
+
+            if ($elapsed >= $this->guess->totalTimeout) {
+                $log[] = $id . ': skipped (total timeout)';
+                break;
+            }
+
+            try {
+                $profile = $this->loadProfile($id);
+            } catch (\Throwable $e) {
+                $log[] = $id . ': invalid profile: ' . $e->getMessage();
+                continue;
+            }
+
+            if ($profile === null) {
+                $log[] = $id . ': profile not found';
+                continue;
+            }
+
+            if ($this->guess->arch !== null && $profile->arch() !== $this->guess->arch) {
+                $log[] = sprintf('%s: skipped (%s profile, configured %s)', $id, $profile->arch(), $this->guess->arch);
+                continue;
+            }
+
+            $tried++;
+            $remaining = max(1, (int) ceil($this->guess->totalTimeout - $elapsed));
+
+            try {
+                $result = $this->runner !== null
+                    ? ($this->runner)($target, $profile, $this->guess->workers, $remaining)
+                    : $this->poc->run($target, $profile, true, $this->guess->workers, $remaining);
+            } catch (\Throwable $e) {
+                $log[] = $profile->id() . ': runner failed: ' . $e->getMessage();
+                break;
+            }
+
+            if ($result->confirmed) {
+                return [$this->rceFinding($target, $profile, $result)];
+            }
+
+            $log[] = $profile->id() . ': ' . $result->reason . ($result->terminal ? ' [stopped]' : '');
+
+            if ($result->terminal) {
+                break;
+            }
+
+            if ($this->client !== null) {
+                $health = $this->client->get($target->url, $target->requestHeaders());
+
+                if ($health === null || $health->getStatusCode() >= 500) {
+                    $log[] = 'target stopped responding; remaining profiles skipped';
+                    break;
+                }
+            }
+        }
+
+        if ($tried === 0) {
+            return [$this->pocInconclusive(
+                $target,
+                'no profile was attempted: ' . ($log === [] ? 'empty profile list' : implode('; ', $log)),
+            )];
+        }
+
+        return [$this->pocInconclusive(
+            $target,
+            sprintf('tried %d profile(s): %s', $tried, implode('; ', $log)),
+        )];
+    }
+
+    private function loadProfile(string $id): ?Profile
+    {
         if (is_file($id)) {
             return Profile::fromFile($id);
         }

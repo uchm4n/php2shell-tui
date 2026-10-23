@@ -80,6 +80,12 @@ final class ConfigTest extends TestCase
         self::assertSame('./reports', $config->reportDir);
         self::assertSame(180, $config->pocTimeout);
         self::assertSame(150, $config->pocMaxWorkers);
+        self::assertFalse($config->pocGuess);
+        self::assertSame([], $config->pocProfiles);
+        self::assertNull($config->pocArch);
+        self::assertNull($config->pocWorkers);
+        self::assertSame(5, $config->pocMaxAttempts);
+        self::assertSame(300, $config->pocTotalTimeout);
     }
 
     public function testItParsesPocOptions(): void
@@ -91,6 +97,76 @@ final class ConfigTest extends TestCase
 
         self::assertSame(240, $config->pocTimeout);
         self::assertSame(50, $config->pocMaxWorkers);
+    }
+
+    public function testItParsesThePocGuessPlan(): void
+    {
+        $config = Config::fromArray([
+            'targets' => ['https://example.com'],
+            'poc' => [
+                'guess' => true,
+                'arch' => 'x86_64',
+                'workers' => 8,
+                'max_attempts' => 3,
+                'total_timeout' => 90,
+                'timeout' => 42,
+                'max_workers' => 10,
+                'profiles' => ['first-profile', 'second-profile', 'first-profile'],
+            ],
+        ]);
+
+        self::assertTrue($config->pocGuess);
+        self::assertSame(['first-profile', 'second-profile'], $config->pocProfiles);
+        self::assertSame('amd64', $config->pocArch);
+        self::assertSame(8, $config->pocWorkers);
+        self::assertSame(3, $config->pocMaxAttempts);
+        self::assertSame(90, $config->pocTotalTimeout);
+        self::assertSame(42, $config->pocTimeout);
+        self::assertSame(10, $config->pocMaxWorkers);
+    }
+
+    public function testPocGuessRequiresProfiles(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('poc.profiles');
+
+        Config::fromArray([
+            'targets' => ['https://example.com'],
+            'poc' => ['guess' => true],
+        ]);
+    }
+
+    public function testItRejectsAnUnknownPocArchitecture(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('poc.arch');
+
+        Config::fromArray([
+            'targets' => ['https://example.com'],
+            'poc' => ['arch' => 'sparc'],
+        ]);
+    }
+
+    public function testItRejectsPocWorkersAboveTheCap(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('poc.workers');
+
+        Config::fromArray([
+            'targets' => ['https://example.com'],
+            'poc' => ['workers' => 20, 'max_workers' => 10],
+        ]);
+    }
+
+    public function testItRejectsANonBooleanPocGuess(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('poc.guess');
+
+        Config::fromArray([
+            'targets' => ['https://example.com'],
+            'poc' => ['guess' => 'false'],
+        ]);
     }
 
     public function testTheDefaultUserAgentNamesTheApplicationVersion(): void
@@ -251,14 +327,17 @@ final class ConfigTest extends TestCase
 
     public function testItLoadsTheShippedExampleConfig(): void
     {
-        $config = Config::fromFile(dirname(__DIR__, 2) . '/php2shell-tui.yaml');
+        $root = dirname(__DIR__, 2);
+        $config = Config::fromFile($root . '/php2shell-tui.yaml');
 
-        self::assertCount(2, $config->targets);
-        self::assertSame('https://lamart.ge/', $config->targets[0]->url);
-        self::assertSame(['/admin'], $config->targets[0]->paths);
-        self::assertTrue($config->targets[0]->staging);
-        self::assertSame('https://nuc.ge', $config->targets[1]->url);
-        self::assertSame(['/admin', '/wp-admin', '/login'], $config->targets[1]->paths);
+        self::assertNotEmpty($config->targets);
+        self::assertTrue($config->checkEnabled('php2shell'));
+        self::assertFalse($config->pocGuess);
+        self::assertNotEmpty($config->pocProfiles);
+
+        foreach ($config->pocProfiles as $id) {
+            self::assertFileExists($root . '/src/Data/poc/' . $id . '.json', $id);
+        }
     }
 
     public function testItRejectsAMissingConfigFile(): void

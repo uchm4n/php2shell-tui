@@ -8,10 +8,10 @@ It only contacts the hosts listed in your config — no discovery, no host argum
 Use it only on hosts you own or are authorized to test.
 
 **Note:** By default it checks the **PHP2Shell** exposure condition. With `--verify` and an
-explicit verified `poc_profile`, it attempts the real PHP2Shell chain against the target on the
-first run: no test endpoint, no preflight POST. The verified profile is the amd64
-PHP 8.4.26 mod_php build. HTTPS is attempted with verified TLS but is experimental; FPM is not
-supported.
+explicit `poc_profile` or `poc.guess: true`, it attempts the real PHP2Shell chain against the
+target on the first run: no test endpoint, no preflight POST. Only the amd64 PHP 8.4.26 mod_php
+build is verified; the other shipped profiles are ordered guesses. HTTPS is attempted with
+verified TLS but is experimental; FPM is not supported.
 
 <img src="./screenshot.png" alt="php2shell-tui" width="600">
 
@@ -51,8 +51,6 @@ targets:
   - url: https://app.example.com/
     staging: true
     post_path: /index.php
-    # Required for the full proof; exact verified build only:
-    poc_profile: php-8.4.26-apache-bookworm-amd64
 
 checks:
   php_presence: true
@@ -66,13 +64,23 @@ checks:
   open_ports: true
   injection: false                   # also needs --verify
 
+poc:
+  guess: true                        # try the ordered list; also needs --verify
+  arch: any                          # any | amd64 | aarch64
+  workers: 150                       # prefork workers to pin; set to the target's actual count
+  max_attempts: 5
+  total_timeout: 300
+  profiles:
+    - php-8.4.26-apache-bookworm-amd64   # verified in the lab
+    - php-8.5.11-apache-bookworm-amd64   # public offsets, not verified here
+    - php-8.5.11-apache-bookworm-aarch64
+    # ... see php2shell-tui.yaml for the full ordered list
+
 options:
   concurrency: 8
   timeout: 10                        # seconds per request
   connect_timeout: 5
   delay_ms: 100                      # per-host politeness delay
-  poc_timeout: 180                   # per raw PoC stage/socket; also the total deadline check
-  poc_max_workers: 150               # refuse a profile that needs more prefork holders
   min_severity: medium               # below this: hidden from text/markdown and the exit code
 
 output:
@@ -96,14 +104,16 @@ dropping back to the shell. Press `q`, `Esc` or `Ctrl-C` to close the TUI (`j`/`
 
 Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 
-When `--verify` is set and `poc_profile` is configured, the scanner:
+When `--verify` is set, the active check has two modes:
 
-- loads the exact verified build profile;
-- pins `workers - 1` prefork connections;
-- sends the real PHP2Shell chain;
-- writes a short relative proof file;
-- fetches both `<post_path directory>/<file>` and `/<file>`;
-- emits **Critical** only when the exact unique marker is returned.
+- `poc_profile: <id>` runs that one profile.
+- `poc.guess: true` tries `poc.profiles` in order, up to `poc.max_attempts`, and stops early on a
+  marker, a fatal error, or a target that stops responding.
+
+Each attempt pins `workers - 1` prefork connections, sends the real PHP2Shell chain, writes a short
+relative proof file, and fetches both `<post_path directory>/<file>` and `/<file>`. The scanner
+emits **Critical** only when the exact unique marker is returned. A failed guess is reported as
+“proof not obtained,” never as “safe.”
 
 **Known limitation**: a baseline response of `403`, `407`, `429`, or `503` marks the target unscannable
 and skips every check, including the active proof. Use a baseline path the scanner can reach, or
@@ -130,14 +140,24 @@ findings ship reproduce steps rather than a destructive payload.
 - TLS certificates that are expired, expiring soon, or issued for another hostname
 - Webshell indicators in common upload paths
 - Publicly reachable high-risk ports
-- With `--verify` and a matching `poc_profile`: a real, first-run RCE proof
+- With `--verify` and a matching `poc_profile` or `poc.guess`: a real, first-run RCE proof
 - With `--verify` and `injection: true`: SQL injection, reflected XSS, local file inclusion
 
-## Verified profile
+## Profiles and guess mode
 
-The only shipped full-chain profile is `php-8.4.26-apache-bookworm-amd64`, for the official
-amd64 `php:8.4.26-apache` build. Set `poc_profile` only after confirming the target matches that
-exact build. The scanner does not guess the build.
+Only `php-8.4.26-apache-bookworm-amd64` is verified in this engine, for the official amd64
+`php:8.4.26-apache` build. Use `poc_profile` only after confirming the target matches that exact
+build.
+
+The shipped `poc.profiles` list also includes 13 builds with public libphp offsets from the
+`devploit/php2shell` offset inventory (MIT). They are marked `rce_verified: false` and use the
+8.4.26 stage baseline; they are guesses, not verified profiles. Most are aarch64, so amd64
+coverage beyond 8.4.26 is currently limited to 8.5.11. There are no public offsets for 5.4–7.3.
+
+`poc.guess: false` keeps the list inert. Flipping it to `true` and passing `--verify` tries the
+profiles in order. Each guess can be disruptive: a wrong offset may crash Apache children.
+Keep `staging: false` or omit it unless the host is explicitly authorized, and do not enable
+guess mode when the version check already reports the target as patched.
 
 The proof writes a short relative file in the PHP working directory and fetches both the script
 directory and webroot candidates. If neither returns the marker, the finding says “proof not

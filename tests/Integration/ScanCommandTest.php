@@ -199,6 +199,86 @@ final class ScanCommandTest extends TestCase
         ]);
     }
 
+    private function php2shellGuessConfig(int $port): string
+    {
+        return $this->writeConfig([
+            'targets' => [[
+                'url' => 'http://127.0.0.1:' . $port . '/',
+                'post_path' => '/index.php',
+            ]],
+            'checks' => ['php2shell' => true],
+            'poc' => [
+                'guess' => true,
+                'arch' => 'amd64',
+                'workers' => 2,
+                'max_attempts' => 1,
+                'total_timeout' => 10,
+                'profiles' => ['php-8.4.26-apache-bookworm-amd64'],
+            ],
+        ]);
+    }
+
+    public function testThePhp2ShellGuessDoesNotRunWithoutVerify(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->php2shellGuessConfig($port),
+                '--format' => 'json',
+            ]);
+
+            self::assertSame(0, $code);
+            self::assertStringNotContainsString('php2shell-rce', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testThePhp2ShellGuessAloneRequiresConfirmation(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->php2shellGuessConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+                '--no-interaction' => true,
+            ]);
+
+            self::assertSame(2, $code);
+            self::assertStringContainsString('requires --yes', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testTheVerificationPromptWarnsAboutGuessMode(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            $application = new Application();
+            $application->setAutoExit(false);
+            $application->setCatchExceptions(false);
+            $tester = new ApplicationTester($application);
+            $tester->setInputs(['n']);
+            $tester->run([
+                'command' => 'scan',
+                '--config' => $this->php2shellGuessConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+            ]);
+
+            self::assertStringContainsString('guess mode', $tester->getDisplay());
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
     public function testVerifyWithoutYesAbortsInNonInteractiveMode(): void
     {
         [$port, $process] = $this->fixture();

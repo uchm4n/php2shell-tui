@@ -175,4 +175,16 @@ final class PocProfileTest extends TestCase
         $this->expectExceptionMessage('b1_spec');
         Profile::fromArray($data);
     }
+
+    public function testEveryShippedProfileLoadsAndMatchesItsFileName(): void
+    {
+        $files = glob(__DIR__ . '/../../src/Data/poc/*.json') ?: [];
+
+        self::assertNotEmpty($files);
+
+        foreach ($files as $file) {
+            $profile = Profile::fromFile($file);
+            self::assertSame(pathinfo($file, PATHINFO_FILENAME), $profile->id(), $file);
+        }
+    }
 }
