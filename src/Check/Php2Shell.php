@@ -1,0 +1,118 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Php2ShellTui\Check;
+
+use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Finding;
+use Php2ShellTui\Poc\Php2ShellPoc;
+use Php2ShellTui\Poc\PocResult;
+use Php2ShellTui\Poc\Profile;
+use Php2ShellTui\Severity;
+use Php2ShellTui\Target;
+use Psr\Http\Message\ResponseInterface;
+
+final class Php2Shell implements Check
+{
+    public function __construct(
+        private readonly Reproduce $reproduce,
+        private readonly bool $verify,
+        private readonly ?Php2ShellPoc $poc = null,
+        private readonly ?string $pocDir = null,
+    ) {
+    }
+
+    public function id(): string
+    {
+        return 'php2shell';
+    }
+
+    public function paths(Target $target, ?ResponseInterface $baseline): array
+    {
+        return [];
+    }
+
+    public function analyze(Target $target, array $responses): array
+    {
+        if (!$this->verify || $target->pocProfile === null) {
+            return [];
+        }
+
+        if ($this->poc === null) {
+            return [$this->pocInconclusive($target, 'proof runner is not configured')];
+        }
+
+        try {
+            $profile = $this->profile($target);
+        } catch (\Throwable $e) {
+            return [$this->pocInconclusive($target, 'profile is invalid: ' . $e->getMessage())];
+        }
+
+        if ($profile === null) {
+            return [$this->pocInconclusive($target, 'poc_profile was not found')];
+        }
+
+        $result = $this->poc->run($target, $profile);
+
+        if (!$result->confirmed) {
+            return [$this->pocInconclusive($target, $result->reason)];
+        }
+
+        return [$this->rceFinding($target, $profile, $result)];
+    }
+
+    private function profile(Target $target): ?Profile
+    {
+        $id = $target->pocProfile;
+
+        if ($id === null) {
+            return null;
+        }
+
+        if (is_file($id)) {
+            return Profile::fromFile($id);
+        }
+
+        if ($this->pocDir !== null) {
+            $path = rtrim($this->pocDir, '/') . '/' . basename($id) . '.json';
+
+            if (is_file($path)) {
+                return Profile::fromFile($path);
+            }
+        }
+
+        return null;
+    }
+
+    private function pocInconclusive(Target $target, string $reason): Finding
+    {
+        return new Finding(
+            id: 'php2shell-poc-inconclusive',
+            title: 'PHP2Shell - RCE proof not obtained',
+            severity: Severity::Info,
+            target: $target->label(),
+            evidence: 'RCE proof not obtained: ' . $reason,
+            exploit: 'No exploit confirmed; do not treat this as safe.',
+            reproduce: $this->reproduce->steps('php2shell-rce', $target->url, $target->label()),
+        );
+    }
+
+    private function rceFinding(Target $target, Profile $profile, PocResult $result): Finding
+    {
+        return new Finding(
+            id: 'php2shell-rce',
+            title: 'PHP2Shell - RCE confirmed',
+            severity: Severity::Critical,
+            target: $target->label(),
+            evidence: sprintf(
+                'Profile %s; the unique proof marker "%s" was fetched from %s.',
+                $profile->id(),
+                (string) $result->proof,
+                $result->proofPath ?? 'the proof path',
+            ),
+            exploit: 'The target executed a unique command; this is confirmed remote code execution.',
+            reproduce: $this->reproduce->steps('php2shell-rce', $target->url, $target->label()),
+        );
+    }
+}

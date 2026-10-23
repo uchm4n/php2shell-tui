@@ -22,8 +22,8 @@ final class ReportTest extends TestCase
                     title: 'PHP2Shell · CVE-2026-109618',
                     severity: Severity::Critical,
                     target: 'legacy.example.com',
-                    evidence: 'PHP 8.1.29 detected via X-Powered-By (confidence: high); affected — patched in 8.2.35.',
-                    exploit: 'Send the published OOM trigger to any .php endpoint to get pre-auth RCE as the PHP-FPM worker.',
+                    evidence: 'PHP 8.1.29 detected via X-Powered-By (confidence: high); affected; this branch has no fixed release, upgrade to 8.2.35 or newer.',
+                    exploit: 'The verified public chain is Apache prefork + mod_php; FPM requires a different, unverified route.',
                     reproduce: ['curl -sI https://legacy.example.com/ | grep -i x-powered-by'],
                 ),
                 new Finding(

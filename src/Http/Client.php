@@ -82,6 +82,55 @@ final class Client
 
     /**
      * @param array<string, string> $headers
+     * @param array<string, string> $fields
+     */
+    public function postAsync(string $url, array $headers, array $fields, bool $multipart = false): PromiseInterface
+    {
+        // Suppress 100-continue: the probe should not wait for an interim
+        // response from a server that may not speak it correctly.
+        $headers['Expect'] = '';
+
+        $options = [
+            'http_errors' => false,
+            'allow_redirects' => false,
+            'stream' => true,
+            'headers' => $headers,
+        ];
+
+        if ($multipart) {
+            $options['multipart'] = [];
+            foreach ($fields as $name => $value) {
+                $options['multipart'][] = [
+                    'name' => (string) $name,
+                    'contents' => (string) $value,
+                ];
+            }
+        } else {
+            $options['form_params'] = $fields;
+        }
+
+        if ($this->delayMs > 0) {
+            $options['delay'] = $this->delayMs;
+        }
+
+        return $this->guzzle->requestAsync('POST', $url, $options);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     * @param array<string, string> $fields
+     */
+    public function post(string $url, array $headers = [], array $fields = [], bool $multipart = false): ?ResponseInterface
+    {
+        try {
+            return $this->postAsync($url, $headers, $fields, $multipart)->wait();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string, string> $headers
      */
     public function get(string $url, array $headers = []): ?ResponseInterface
     {

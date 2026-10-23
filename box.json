@@ -7,11 +7,19 @@
     "directories": [
         "src/Data"
     ],
+    "files": [
+        "vendor/symfony/console/Command/SignalableCommandInterface.php"
+    ],
     "force-autodiscovery": true,
     "blacklist": [
         "tests",
         "reports",
         "build",
+        "docs",
+        ".superpowers",
+        ".opencode",
+        ".idea",
+        ".phpunit.cache",
         "php2shell-tui.yaml"
     ]
 }

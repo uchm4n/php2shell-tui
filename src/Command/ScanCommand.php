@@ -10,6 +10,7 @@ use GuzzleHttp\HandlerStack;
 use Php2ShellTui\Check\AppFingerprint;
 use Php2ShellTui\Check\LocalFileInclusion;
 use Php2ShellTui\Check\OpenPorts;
+use Php2ShellTui\Check\Php2Shell;
 use Php2ShellTui\Check\PhpDetection;
 use Php2ShellTui\Check\PhpVersion;
 use Php2ShellTui\Check\ReflectedXss;
@@ -26,9 +27,11 @@ use Php2ShellTui\Engine;
 use Php2ShellTui\Http\Client;
 use Php2ShellTui\Http\Pool;
 use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
 use Php2ShellTui\ScanResult;
+use Php2ShellTui\Target;
 use Php2ShellTui\Ui\PlainRenderer;
 use Php2ShellTui\Ui\TuiRenderer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -97,6 +100,16 @@ final class ScanCommand extends Command
             $checks = [
                 'php_presence' => new PhpDetection($reproduce),
                 'php_version' => new PhpVersion($db, $reproduce),
+                'php2shell' => new Php2Shell(
+                    $reproduce,
+                    $verify,
+                    new Php2ShellPoc(
+                        client: $client,
+                        timeout: $config->pocTimeout,
+                        maxWorkers: $config->pocMaxWorkers,
+                    ),
+                    $dataDir . '/poc',
+                ),
                 'sensitive_files' => new SensitiveFiles($wordlists, $reproduce),
                 'security_headers' => new SecurityHeaders($reproduce),
                 'tls' => new Tls($reproduce),
@@ -115,7 +128,10 @@ final class ScanCommand extends Command
 
             $engine = new Engine($pool, $registry);
 
-            if ($verify && !$input->getOption('yes')) {
+            $php2shellActive = $config->checkEnabled('php2shell')
+                && array_filter($config->targets, static fn (Target $target): bool => $target->pocProfile !== null) !== [];
+
+            if ($verify && ($config->checkEnabled('injection') || $php2shellActive) && !$input->getOption('yes')) {
                 $needsConfirmation = false;
                 foreach ($config->targets as $target) {
                     if (!$target->staging) {
@@ -135,7 +151,7 @@ final class ScanCommand extends Command
                         $input,
                         $output,
                         new ConfirmationQuestion(
-                            'Verification sends proof-of-concept requests to hosts that are not marked as staging. Continue? [y/N] ',
+                            'Verification sends proof-of-concept requests. For a target with a poc_profile, the PHP2Shell proof pins workers, sends large bodies, and writes a proof file. Hosts not marked as staging need confirmation. Continue? [y/N] ',
                             false
                         )
                     );

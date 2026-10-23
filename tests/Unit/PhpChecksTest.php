@@ -72,6 +72,7 @@ final class PhpChecksTest extends TestCase
         self::assertSame(Severity::Critical, $findings[0]->severity);
         self::assertStringContainsString('8.1.29', $findings[0]->evidence);
         self::assertStringContainsString('8.2.35', $findings[0]->evidence);
+        self::assertStringContainsString('backport', $findings[0]->evidence);
         self::assertNotEmpty($findings[0]->reproduce);
     }
 
@@ -199,5 +200,89 @@ final class PhpChecksTest extends TestCase
             ['/', '/phpinfo.php', '/info.php'],
             (new PhpVersion($this->db, $this->reproduce))->paths($this->target, null),
         );
+    }
+
+    public function testAnExpressPoweredByHeaderIsNotAPhpSignal(): void
+    {
+        $findings = (new PhpDetection($this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, ['X-Powered-By' => 'Express'], '<html>hi</html>'),
+        ]);
+
+        self::assertSame('No PHP signal detected', $findings[0]->title);
+        self::assertStringNotContainsString('Express', $findings[0]->evidence);
+    }
+
+    public function testHeaderSignalsIgnoreTheBody(): void
+    {
+        $response = new Response(200, [], 'Powered by PHP');
+
+        self::assertSame([], PhpDetection::headerSignals($response));
+        self::assertNotEmpty(PhpDetection::signals($response));
+        self::assertSame('Powered by PHP', (string) $response->getBody());
+    }
+
+    public function testHeaderSignalsFindPhpHeaders(): void
+    {
+        $signals = PhpDetection::headerSignals(new Response(200, [
+            'X-Powered-By' => 'PHP/8.4.26',
+            'Server' => 'Apache/2.4.58 (Unix) PHP/8.4.26',
+            'Set-Cookie' => 'PHPSESSID=abc; path=/',
+        ]));
+
+        self::assertContains('X-Powered-By: PHP/8.4.26', $signals);
+        self::assertContains('Server: Apache/2.4.58 (Unix) PHP/8.4.26', $signals);
+        self::assertContains('Set-Cookie: PHPSESSID', $signals);
+    }
+
+    public function testALaravelSessionCookieIsNotAPhpSignal(): void
+    {
+        $findings = (new PhpDetection($this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, ['Set-Cookie' => 'laravel_session=abc; path=/'], '<html>hi</html>'),
+        ]);
+
+        self::assertSame('No PHP signal detected', $findings[0]->title);
+        self::assertStringContainsString('full proof', $findings[0]->exploit);
+    }
+
+    public function testThePositivePresenceFindingNamesTheBranchFixes(): void
+    {
+        $findings = (new PhpDetection($this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, ['X-Powered-By' => 'PHP/8.4.26'], 'body'),
+        ]);
+
+        self::assertStringNotContainsString('every PHP release before 8.2.35', $findings[0]->exploit);
+        self::assertStringContainsString('8.3.36', $findings[0]->exploit);
+        self::assertStringContainsString('8.4.27', $findings[0]->exploit);
+    }
+
+    public function testTheVersionFindingDoesNotClaimTheHostDoesNotRunPhp(): void
+    {
+        $findings = (new PhpVersion($this->db, $this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, [], '<html>hi</html>'),
+        ]);
+
+        self::assertStringContainsStringIgnoringCase('no PHP signal', $findings[0]->title);
+        self::assertStringNotContainsString('does not run PHP', $findings[0]->exploit);
+        self::assertStringContainsString('full proof', $findings[0]->exploit);
+    }
+
+    public function testTheAffectedFindingDoesNotNameFpmAsTheVerifiedWorker(): void
+    {
+        $findings = (new PhpVersion($this->db, $this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, ['X-Powered-By' => 'PHP/8.1.29'], 'body'),
+        ]);
+
+        self::assertStringNotContainsString('PHP-FPM worker', $findings[0]->exploit);
+        self::assertStringContainsString('mod_php', $findings[0]->exploit);
+    }
+
+    public function testTheAffectedEvidenceUsesFixedInNotContradictoryWording(): void
+    {
+        $findings = (new PhpVersion($this->db, $this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, ['X-Powered-By' => 'PHP/8.2.12-1ubuntu2.14'], 'body'),
+        ]);
+
+        self::assertStringContainsString('affected; fixed in 8.2.35', $findings[0]->evidence);
+        self::assertStringNotContainsString('affected - patched', $findings[0]->evidence);
     }
 }

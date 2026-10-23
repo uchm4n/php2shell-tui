@@ -183,7 +183,19 @@ final class ScanCommandTest extends TestCase
     {
         return $this->writeConfig([
             'targets' => ['http://127.0.0.1:' . $port . '/search?q=test'],
-            'checks' => ['injection' => true],
+            'checks' => ['injection' => true, 'php2shell' => false],
+        ]);
+    }
+
+    private function php2shellConfig(int $port): string
+    {
+        return $this->writeConfig([
+            'targets' => [[
+                'url' => 'http://127.0.0.1:' . $port . '/',
+                'post_path' => '/index.php',
+                'poc_profile' => 'php-8.4.26-apache-bookworm-amd64',
+            ]],
+            'checks' => ['php2shell' => true],
         ]);
     }
 
@@ -195,6 +207,67 @@ final class ScanCommandTest extends TestCase
             [$code, $output] = $this->runCommand([
                 'command' => 'scan',
                 '--config' => $this->injectionConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+                '--no-interaction' => true,
+            ]);
+
+            self::assertSame(2, $code);
+            self::assertStringContainsString('requires --yes', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testTheVerificationPromptWarnsAboutTheIntrusiveChain(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            $application = new Application();
+            $application->setAutoExit(false);
+            $application->setCatchExceptions(false);
+            $tester = new ApplicationTester($application);
+            $tester->setInputs(['n']);
+            $tester->run([
+                'command' => 'scan',
+                '--config' => $this->php2shellConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+            ]);
+
+            self::assertStringContainsString('pins workers', $tester->getDisplay());
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testThePhp2ShellDoesNotRunWithoutVerify(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->php2shellConfig($port),
+                '--format' => 'json',
+            ]);
+
+            self::assertSame(0, $code);
+            self::assertStringNotContainsString('php2shell-rce', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testThePhp2ShellAloneRequiresConfirmation(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->php2shellConfig($port),
                 '--format' => 'json',
                 '--verify' => true,
                 '--no-interaction' => true,

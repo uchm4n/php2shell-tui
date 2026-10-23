@@ -14,6 +14,8 @@ final class Target
         public readonly ?string $vhost = null,
         public readonly array $paths = [],
         public readonly bool $staging = false,
+        public readonly ?string $postPath = null,
+        public readonly ?string $pocProfile = null,
     ) {
     }
 

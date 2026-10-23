@@ -7,7 +7,11 @@ reproduce steps.
 It only contacts the hosts listed in your config — no discovery, no host argument, no brute force.
 Use it only on hosts you own or are authorized to test.
 
-**Note**: It checks the **PHP2Shell** exposure condition, **not** the exploit itself.
+**Note:** By default it checks the **PHP2Shell** exposure condition. With `--verify` and an
+explicit verified `poc_profile`, it attempts the real PHP2Shell chain against the target on the
+first run: no test endpoint, no preflight POST. The verified profile is the amd64
+PHP 8.4.26 mod_php build. HTTPS is attempted with verified TLS but is experimental; FPM is not
+supported.
 
 <img src="./screenshot.png" alt="php2shell-tui" width="600">
 
@@ -43,9 +47,17 @@ targets:
     paths: ["/wp-content/uploads"]   # extra directories to check for webshells
     staging: true                    # no --yes prompt for --verify
 
+  # Optional real-server check. No POST is sent without --verify.
+  - url: https://app.example.com/
+    staging: true
+    post_path: /index.php
+    # Required for the full proof; exact verified build only:
+    poc_profile: php-8.4.26-apache-bookworm-amd64
+
 checks:
   php_presence: true
   php_version: true
+  php2shell: true                    # default on; POST only with --verify
   sensitive_files: true
   security_headers: true
   tls: true
@@ -59,6 +71,8 @@ options:
   timeout: 10                        # seconds per request
   connect_timeout: 5
   delay_ms: 100                      # per-host politeness delay
+  poc_timeout: 180                   # per raw PoC stage/socket; also the total deadline check
+  poc_max_workers: 150               # refuse a profile that needs more prefork holders
   min_severity: medium               # below this: hidden from text/markdown and the exit code
 
 output:
@@ -82,19 +96,30 @@ dropping back to the shell. Press `q`, `Esc` or `Ctrl-C` to close the TUI (`j`/`
 
 Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 
-### Phase 3: proof-of-concept probes
+When `--verify` is set and `poc_profile` is configured, the scanner:
 
-`injection: true` adds SQL injection, reflected XSS and local file inclusion probes. They stay off
-until you also pass `--verify` at runtime:
+- loads the exact verified build profile;
+- pins `workers - 1` prefork connections;
+- sends the real PHP2Shell chain;
+- writes a short relative proof file;
+- fetches both `<post_path directory>/<file>` and `/<file>`;
+- emits **Critical** only when the exact unique marker is returned.
+
+**Known limitation**: a baseline response of `403`, `407`, `429`, or `503` marks the target unscannable
+and skips every check, including the active proof. Use a baseline path the scanner can reach, or
+run it from a vantage point that can reach the application.
+
+`injection: true` adds SQL injection, reflected XSS, and local file inclusion probes. They also
+stay off until `--verify`:
 
 ```bash
-bin/php2shell-tui --verify          # asks before probing hosts not marked staging: true
-bin/php2shell-tui --verify --yes    # no prompt
+bin/php2shell-tui scan --verify          # asks before probing hosts not marked staging: true
+bin/php2shell-tui scan --verify --yes    # no prompt
 ```
 
-Rails: at most 60 probe requests per check per target, hosts outside the target are never
-contacted, pages that differ between two identical fetches are skipped, and a finding ships
-reproduce steps rather than a destructive payload.
+Rails: the full chain pins `workers - 1` connections plus four chain requests. Hosts outside the
+target are never contacted, pages that differ between two identical fetches are skipped, and
+findings ship reproduce steps rather than a destructive payload.
 
 ## What it looks for
 
@@ -105,7 +130,25 @@ reproduce steps rather than a destructive payload.
 - TLS certificates that are expired, expiring soon, or issued for another hostname
 - Webshell indicators in common upload paths
 - Publicly reachable high-risk ports
-- With `--verify`: SQL injection, reflected XSS, local file inclusion
+- With `--verify` and a matching `poc_profile`: a real, first-run RCE proof
+- With `--verify` and `injection: true`: SQL injection, reflected XSS, local file inclusion
+
+## Verified profile
+
+The only shipped full-chain profile is `php-8.4.26-apache-bookworm-amd64`, for the official
+amd64 `php:8.4.26-apache` build. Set `poc_profile` only after confirming the target matches that
+exact build. The scanner does not guess the build.
+
+The proof writes a short relative file in the PHP working directory and fetches both the script
+directory and webroot candidates. If neither returns the marker, the finding says “proof not
+retrievable”; it never claims success without the marker.
+
+HTTPS is attempted with verified TLS, but the verified transport is HTTP; treat HTTPS as
+experimental. FPM is refused because the verified chain is mod_php only.
+
+```sh
+bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify --yes
+```
 
 ## Development
 

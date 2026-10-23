@@ -9,6 +9,7 @@ final class Config
     public const CHECKS = [
         'php_presence',
         'php_version',
+        'php2shell',
         'sensitive_files',
         'security_headers',
         'tls',
@@ -38,6 +39,8 @@ final class Config
         public readonly Severity $minSeverity,
         public readonly string $format,
         public readonly string $reportDir,
+        public readonly int $pocTimeout,
+        public readonly int $pocMaxWorkers,
     ) {
     }
 
@@ -84,6 +87,8 @@ final class Config
             minSeverity: $minSeverity,
             format: $format,
             reportDir: (string) ($output['report_dir'] ?? './reports'),
+            pocTimeout: max(1, (int) ($options['poc_timeout'] ?? 180)),
+            pocMaxWorkers: max(1, (int) ($options['poc_max_workers'] ?? 150)),
         );
     }
 
@@ -136,13 +141,98 @@ final class Config
 
             $targets[] = new Target(
                 url: $url,
-                vhost: isset($entry['vhost']) ? (string) $entry['vhost'] : null,
+                vhost: self::optionalHeader($entry, 'vhost'),
                 paths: array_values(array_map('strval', (array) ($entry['paths'] ?? []))),
-                staging: (bool) ($entry['staging'] ?? false),
+                staging: self::optionalBool($entry, 'staging'),
+                postPath: self::sameOriginPath($entry, 'post_path'),
+                pocProfile: self::localProfile($entry),
             );
         }
 
         return $targets;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private static function sameOriginPath(array $entry, string $key): ?string
+    {
+        if (!array_key_exists($key, $entry)) {
+            return null;
+        }
+
+        $value = $entry[$key];
+
+        if (!is_string($value)
+            || $value === ''
+            || $value[0] !== '/'
+            || str_starts_with($value, '//')
+            || str_contains($value, '://')
+            || preg_match('/[\x00-\x20\x7F]/', $value) === 1) {
+            throw new \InvalidArgumentException(sprintf(
+                'Target option "%s" must be an absolute same-origin path starting with "/" and contain no whitespace or control characters.',
+                $key,
+            ));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private static function optionalBool(array $entry, string $key): bool
+    {
+        if (!array_key_exists($key, $entry)) {
+            return false;
+        }
+
+        if (!is_bool($entry[$key])) {
+            throw new \InvalidArgumentException(sprintf('Target option "%s" must be a boolean.', $key));
+        }
+
+        return $entry[$key];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private static function optionalHeader(array $entry, string $key): ?string
+    {
+        if (!array_key_exists($key, $entry)) {
+            return null;
+        }
+
+        $value = $entry[$key];
+
+        if (!is_string($value)
+            || trim($value) === ''
+            || preg_match('/[\x00-\x20\x7F]/', $value) === 1) {
+            throw new \InvalidArgumentException(sprintf('Target option "%s" must be a safe header value.', $key));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private static function localProfile(array $entry): ?string
+    {
+        if (!array_key_exists('poc_profile', $entry)) {
+            return null;
+        }
+
+        $value = $entry['poc_profile'];
+
+        if (!is_string($value)
+            || trim($value) === ''
+            || str_contains($value, '://')
+            || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            throw new \InvalidArgumentException('Target option "poc_profile" must be a local profile ID or path, not a URL.');
+        }
+
+        return $value;
     }
 
     /**
@@ -162,7 +252,18 @@ final class Config
 
         $checks = [];
         foreach (self::CHECKS as $id) {
-            $checks[$id] = (bool) ($raw[$id] ?? false);
+            if (!array_key_exists($id, $raw)) {
+                // The active PHP2Shell check is on by default; it still sends
+                // no POST requests unless --verify is passed.
+                $checks[$id] = $id === 'php2shell';
+                continue;
+            }
+
+            if (!is_bool($raw[$id])) {
+                throw new \InvalidArgumentException(sprintf('Check "%s" must be a boolean.', $id));
+            }
+
+            $checks[$id] = $raw[$id];
         }
 
         // The single `injection` toggle switches on the three verification checks.

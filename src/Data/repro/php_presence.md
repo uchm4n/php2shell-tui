@@ -1,5 +1,8 @@
 curl -sI {url}/ | grep -iE 'x-powered-by|^server:|set-cookie'
-# lists the signals that reveal the host runs PHP
+# shows candidate signals; only PHP/PHPSESSID are PHP-specific
+# X-Powered-By: Express is not PHP
 
 ssh {host} 'php -v'
 # the authoritative version, which the headers may hide
+
+# if the headers hide PHP, check the host directly

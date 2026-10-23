@@ -6,6 +6,7 @@ namespace Php2ShellTui\Check;
 
 use Php2ShellTui\Data\Reproduce;
 use Php2ShellTui\Finding;
+use Php2ShellTui\PhpVersionAssessment;
 use Php2ShellTui\PhpVersionDb;
 use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
@@ -74,47 +75,6 @@ final class PhpVersion implements Check
     }
 
     /**
-     * How the advisory reads one advertised version. The severity doubles as
-     * the ranking: the worst candidate wins when a target advertises several.
-     *
-     * @return array{state: string, severity: Severity}
-     */
-    private function classify(string $version): array
-    {
-        if ($this->db->isPrerelease($version)) {
-            // A pre-release is never evidence of a stable fix.
-            return ['state' => 'prerelease', 'severity' => Severity::High];
-        }
-
-        $normalized = $this->db->normalize($version);
-
-        if ($normalized === null) {
-            return ['state' => 'unknown', 'severity' => Severity::High];
-        }
-
-        if (version_compare($normalized, $this->db->newestKnown(), '>')) {
-            return ['state' => 'newer', 'severity' => Severity::Low];
-        }
-
-        if ($this->db->isAffected($normalized)) {
-            return ['state' => 'affected', 'severity' => Severity::Critical];
-        }
-
-        $branch = $this->db->branch($normalized);
-
-        if ($branch === null
-            || $this->db->vulnerableThrough($branch) === null
-            || $this->db->firstFixed($branch) === null) {
-            // Either a branch the advisory does not cover, or an end-of-life
-            // branch: only its last release exists and that one is affected, so
-            // this version cannot be judged.
-            return ['state' => 'unknown', 'severity' => Severity::High];
-        }
-
-        return ['state' => 'patched', 'severity' => Severity::Info];
-    }
-
-    /**
      * @param array{version: string, source: string, confidence: string, state: string, severity: Severity} $candidate
      * @param array{version: string, source: string, confidence: string, state: string, severity: Severity} $other
      */
@@ -156,11 +116,11 @@ final class PhpVersion implements Check
             if (!$phpPresent) {
                 return [new Finding(
                     id: 'php2shell-version',
-                    title: 'PHP2Shell not applicable - no PHP detected',
+                    title: 'PHP2Shell - no PHP signal detected',
                     severity: Severity::Info,
                     target: $target->label(),
-                    evidence: 'No PHP version could be found and no PHP signal fired.',
-                    exploit: 'Nothing to exploit - this host does not run PHP.',
+                    evidence: 'No PHP version could be found and no PHP-specific signal fired.',
+                    exploit: 'No PHP signal; if PHP runs behind a proxy or hides its headers, verify with server access or a full proof.',
                     reproduce: $steps,
                 )];
             }
@@ -170,15 +130,15 @@ final class PhpVersion implements Check
                 title: 'PHP2Shell - version undetermined',
                 severity: Severity::High,
                 target: $target->label(),
-                evidence: 'PHP is present but the version is not disclosed remotely; the server may still run an affected release.',
-                exploit: 'Read the version with "php -v" on the host - any release before 8.2.35 (or before 8.3.36 / 8.4.27 / 8.5.12 on those branches) is exposed to a pre-auth RCE.',
+                evidence: 'PHP is present but the version is not disclosed remotely; the server may still run an affected release. Confirm the package changelog/backport.',
+                exploit: 'Read the version with "php -v" and the package changelog on the host - a release before the branch fix (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12) is reported affected; a vendor backport may already be fixed.',
                 reproduce: $steps,
             )];
         }
 
         $ranked = [];
         foreach ($candidates as $candidate) {
-            $ranked[] = $candidate + $this->classify($candidate['version']);
+            $ranked[] = $candidate + PhpVersionAssessment::classify($this->db, $candidate['version']);
         }
 
         // Judge on the worst advertised version: an "ok" version in one header
@@ -194,13 +154,13 @@ final class PhpVersion implements Check
             'affected' => [
                 'PHP2Shell - ' . implode(' · ', $this->db->cves()),
                 Severity::Critical,
-                sprintf('PHP %s detected via %s (confidence: %s); affected - %s.', $normalized, $source, $confidence, $this->remedy($normalized)),
-                'Send the published out-of-memory trigger to any .php endpoint to get pre-auth remote code execution as the PHP-FPM worker.',
+                sprintf('PHP %s detected via %s (confidence: %s); affected; %s. Reported affected by upstream version; confirm the package changelog/backport.', $normalized, $source, $confidence, $this->remedy($normalized)),
+                'The verified public chain is Apache prefork + mod_php; FPM requires a different, unverified route; a vendor backport may already be fixed.',
             ],
             'patched' => [
                 'PHP2Shell not applicable (patched)',
                 Severity::Info,
-                sprintf('PHP %s detected via %s (confidence: %s); patched in %s.', $normalized, $source, $confidence, (string) $this->db->fixedFor($normalized)),
+                sprintf('PHP %s detected via %s (confidence: %s); fixed in %s.', $normalized, $source, $confidence, (string) $this->db->fixedFor($normalized)),
                 'Nothing to exploit - this runtime is on a patched PHP release.',
             ],
             'newer' => [
@@ -219,7 +179,7 @@ final class PhpVersion implements Check
                 'PHP2Shell - version undetermined',
                 Severity::High,
                 sprintf('The server advertised "%s" (via %s), which the advisory cannot judge.', $version, $source),
-                'Read the version with "php -v" on the host - any release before 8.2.35 (or before 8.3.36 / 8.4.27 / 8.5.12 on those branches) is exposed to a pre-auth RCE.',
+                'Read the version with "php -v" on the host - any release before the branch fixes (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12) is exposed; a vendor backport may already be fixed.',
             ],
         };
 
@@ -242,7 +202,7 @@ final class PhpVersion implements Check
         $fixed = $this->db->fixedFor($version);
 
         if ($fixed !== null) {
-            return 'patched in ' . $fixed;
+            return 'fixed in ' . $fixed;
         }
 
         return sprintf(
