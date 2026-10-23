@@ -21,7 +21,7 @@ verified TLS but is experimental; FPM is not supported.
 - Composer
 
 ## Install
-Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/raw/refs/heads/feature/php2shell-tui/php2shell-tui)
+Download [php2shell-tui](https://github.com/uchm4n/php2shell-tui/raw/refs/heads/main/php2shell-tui)
 
 ## Configure
 Edit `php2shell-tui.yaml` it is a default configuration file. 
