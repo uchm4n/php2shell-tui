@@ -26,7 +26,7 @@ final class SensitiveFiles implements Check
 
     private const LOW = ['Dockerfile', '.dockerignore'];
 
-    private const SECRET_PATTERN = '/(APP_KEY|DB_PASSWORD|SECRET|TOKEN|PASSWORD|PRIVATE KEY|api[_-]?key)/i';
+    private const SECRET_PATTERN = '/\b(?:APP_KEY|DB_PASSWORD|DB_PASS|SECRET(?:_KEY)?|PRIVATE KEY|api[_-]?key|access[_-]?token)\b\s*[:=]/i';
 
     public function __construct(
         private readonly Wordlists $wordlists,
@@ -41,13 +41,8 @@ final class SensitiveFiles implements Check
 
     public function paths(Target $target, ?ResponseInterface $baseline): array
     {
-        $paths = array_map(static fn (string $p): string => '/' . ltrim($p, '/'), $this->wordlists->sensitivePaths());
-
-        foreach ($target->paths as $extra) {
-            $paths[] = '/' . trim($extra, '/');
-        }
-
-        return array_values(array_unique($paths));
+        // Target "paths" are extra webshell directories, not sensitive files.
+        return array_map(static fn (string $p): string => '/' . ltrim($p, '/'), $this->wordlists->sensitivePaths());
     }
 
     public function analyze(Target $target, array $responses): array
@@ -70,10 +65,18 @@ final class SensitiveFiles implements Check
             }
 
             $relative = ltrim($path, '/');
+
+            // A 200 is not proof: a catch-all page, a WAF page or a custom 404
+            // can answer every path. Require the body to look like the file the
+            // path claims to be.
+            if (!self::matchesSignature($relative, $body)) {
+                continue;
+            }
+
             $severity = self::severityFor($relative);
             $matched = preg_match_all(self::SECRET_PATTERN, $body, $matches) > 0
                 ? 'contains credential-looking keys (' . implode(', ', array_unique($matches[0])) . ')'
-                : 'no credential-looking keys matched';
+                : 'matches the expected file format';
 
             $findings[] = new Finding(
                 id: 'sensitive-file-' . str_replace('/', '-', ltrim($relative, '.')),
@@ -91,6 +94,61 @@ final class SensitiveFiles implements Check
         }
 
         return $findings;
+    }
+
+    /**
+     * The body must carry the marker of the claimed file type. This is what
+     * separates a leaked file from a generic page that answers 200.
+     */
+    private static function matchesSignature(string $relative, string $body): bool
+    {
+        $json = static function (array $keys) use ($body): bool {
+            $decoded = json_decode($body, true);
+
+            if (!is_array($decoded)) {
+                return false;
+            }
+
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $decoded)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        return match (true) {
+            $relative === '.env',
+            str_starts_with($relative, '.env.') => preg_match('/^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.]*\s*=/m', $body) === 1,
+            $relative === '.git/config' => preg_match('/^\s*\[(?:core|remote|branch)\]/mi', $body) === 1,
+            $relative === '.git/HEAD' => preg_match('/^(?:ref:\s+refs\/|[0-9a-f]{40})/mi', $body) === 1,
+            $relative === 'composer.json' => $json(['name', 'require', 'require-dev', 'autoload', 'config']),
+            $relative === 'composer.lock' => $json(['packages', 'packages-dev', 'content-hash']),
+            $relative === 'package.json' => $json(['name', 'dependencies', 'devDependencies', 'scripts']),
+            $relative === 'package-lock.json' => $json(['lockfileVersion', 'packages', 'dependencies']),
+            $relative === '.htaccess' => preg_match('/^\s*(?:RewriteEngine|RewriteRule|Options|Header|AuthType|Require|Deny|Allow|Order|<IfModule)/mi', $body) === 1,
+            $relative === '.DS_Store' => str_starts_with($body, "\x00\x00\x00\x01Bud1"),
+            $relative === 'phpinfo.php',
+            $relative === 'info.php' => preg_match('/PHP Version\s+\d/i', $body) === 1,
+            $relative === 'server-status' => preg_match('/Apache Server Status|Server Version:/i', $body) === 1,
+            $relative === 'server-info' => preg_match('/Apache Server Information|Server Settings/i', $body) === 1,
+            $relative === 'wp-config.php.bak' => preg_match('/DB_NAME|DB_PASSWORD|<\?php/i', $body) === 1,
+            $relative === 'backup.zip' => str_starts_with($body, "PK\x03\x04") || str_starts_with($body, "PK\x05\x06"),
+            $relative === 'dump.sql' => preg_match('/-- MySQL dump|PostgreSQL database dump|CREATE TABLE|INSERT INTO/i', $body) === 1,
+            $relative === '.aws/credentials' => preg_match('/aws_access_key_id|aws_secret_access_key|^\s*\[[^\]]+\]/mi', $body) === 1,
+            $relative === '.npmrc' => preg_match('/registry\s*=|_authToken\s*=/i', $body) === 1,
+            $relative === 'Dockerfile' => preg_match('/^\s*FROM\s+\S+/mi', $body) === 1,
+            $relative === 'adminer.php' => preg_match('/\badminer\b/i', $body) === 1,
+            $relative === 'phpmyadmin/' => preg_match('/\bphpMyAdmin\b/i', $body) === 1,
+            $relative === 'id_rsa' => preg_match('/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/', $body) === 1,
+            default => !self::looksLikeHtml($body),
+        };
+    }
+
+    private static function looksLikeHtml(string $body): bool
+    {
+        return preg_match('/^\s*(?:<!doctype\s+html|<html|<\?xml[^>]*>\s*<html)/i', $body) === 1;
     }
 
     private static function severityFor(string $relative): Severity

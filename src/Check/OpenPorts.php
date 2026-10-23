@@ -7,6 +7,7 @@ namespace Php2ShellTui\Check;
 use Php2ShellTui\Data\Reproduce;
 use Php2ShellTui\Data\Wordlists;
 use Php2ShellTui\Finding;
+use Php2ShellTui\Http\Client;
 use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
@@ -18,12 +19,14 @@ final class OpenPorts implements Check
     private const WEB_PORTS = [80, 443];
 
     /**
-     * @param null|\Closure(string, int): bool $prober
+     * @param null|\Closure(string, int): ?string $prober returns evidence for an
+     *        open service, or null when the port is closed or only a CDN edge
      */
     public function __construct(
         private readonly Wordlists $wordlists,
         private readonly Reproduce $reproduce,
         private readonly ?\Closure $prober = null,
+        private readonly ?Client $client = null,
     ) {
     }
 
@@ -47,11 +50,11 @@ final class OpenPorts implements Check
                 continue;
             }
 
-            $open = $this->prober !== null
+            $evidence = $this->prober !== null
                 ? ($this->prober)($host, $port)
-                : self::probe($host, $port);
+                : $this->probe($host, $port);
 
-            if (!$open) {
+            if ($evidence === null) {
                 continue;
             }
 
@@ -60,7 +63,7 @@ final class OpenPorts implements Check
                 title: sprintf('Port %d is open', $port),
                 severity: in_array($port, self::HIGH_PORTS, true) ? Severity::High : Severity::Medium,
                 target: $target->label(),
-                evidence: sprintf('TCP port %d accepted a connection on %s.', $port, $host),
+                evidence: sprintf('Port %d answered on %s: %s.', $port, $host, $evidence),
                 exploit: sprintf('Connect to %s:%d directly - the service is reachable from outside and may not require authentication.', $host, $port),
                 reproduce: $this->reproduce->steps('open-ports', $target->url, $target->label()),
             );
@@ -69,20 +72,66 @@ final class OpenPorts implements Check
         return $findings;
     }
 
-    private static function probe(string $host, int $port): bool
+    private function probe(string $host, int $port): ?string
     {
         // ponytail: ports are probed sequentially at 150ms each. Fine for the
         // curated list; pool them through the HTTP handler if scan time matters.
         $errno = 0;
         $errstr = '';
-        $socket = @fsockopen($host, $port, $errno, $errstr, 0.15);
+        $socket = @stream_socket_client(
+            sprintf('tcp://%s:%d', $host, $port),
+            $errno,
+            $errstr,
+            0.15
+        );
 
         if ($socket === false) {
-            return false;
+            return null;
         }
 
         fclose($socket);
 
-        return true;
+        if (!in_array($port, [8080, 8443], true) || $this->client === null) {
+            return 'TCP connection accepted';
+        }
+
+        // Cloudflare accepts connections on its alternate web ports for every
+        // proxied hostname. The HTTP response proves whether a real service or
+        // only the shared CDN edge answered.
+        try {
+            $response = $this->client->guzzle()->request('GET', sprintf('http://%s:%d/', $host, $port), [
+                'http_errors' => false,
+                'allow_redirects' => false,
+                'timeout' => 1,
+                'connect_timeout' => 0.5,
+                'headers' => ['Connection' => 'close'],
+            ]);
+        } catch (\Throwable) {
+            // The TCP connection was open, but the service did not answer HTTP.
+            return 'TCP connection accepted';
+        }
+
+        return self::evidenceFromResponse($response);
+    }
+
+    /**
+     * A Cloudflare response belongs to the shared edge, not to the scanned
+     * origin, even when the TCP port is open.
+     */
+    public static function evidenceFromResponse(ResponseInterface $response): ?string
+    {
+        $server = trim($response->getHeaderLine('Server'));
+
+        if (stripos($server, 'cloudflare') !== false
+            || $response->hasHeader('CF-RAY')
+            || $response->hasHeader('CF-Cache-Status')) {
+            return null;
+        }
+
+        $status = $response->getStatusCode();
+
+        return $server === ''
+            ? sprintf('HTTP %d', $status)
+            : sprintf('HTTP %d (Server: %s)', $status, $server);
     }
 }

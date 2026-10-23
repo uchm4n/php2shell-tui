@@ -38,6 +38,37 @@ final class FingerprintChecksTest extends TestCase
         self::assertSame('app-wordpress', $findings[0]->id);
     }
 
+    public function testAnExternalWpContentUrlDoesNotMeanWordPress(): void
+    {
+        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
+        $findings = $check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [], '<html><img src="https://flitt.com/wp-content/uploads/logo.svg"></html>'),
+        ]);
+
+        self::assertSame([], $findings);
+    }
+
+    public function testAnAbsoluteWpContentUrlOnTheTargetHostMeansWordPress(): void
+    {
+        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
+        $findings = $check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [], '<html><link href="https://example.com/wp-content/themes/x/style.css"></html>'),
+        ]);
+
+        self::assertCount(1, $findings);
+        self::assertSame('app-wordpress', $findings[0]->id);
+    }
+
+    public function testAnExternalNextAssetDoesNotMeanNextJs(): void
+    {
+        $check = new AppFingerprint(new Reproduce(__DIR__ . '/../../src/Data/repro'));
+        $findings = $check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [], '<html><script src="https://cdn.example.net/_next/static/chunk.js"></script></html>'),
+        ]);
+
+        self::assertSame([], $findings);
+    }
+
     public function testAWebshellIsOnlyConfirmedWhenTheBodyHasAShellPrimitive(): void
     {
         $check = new WebshellIndicators(

@@ -107,6 +107,87 @@ final class SecurityHeadersTest extends TestCase
         self::assertStringContainsString('missing Secure', $cookie->title);
     }
 
+    public function testTheLaravelXsrfCookieDoesNotNeedHttpOnly(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [
+                'Content-Security-Policy' => "default-src 'self'",
+                'Strict-Transport-Security' => 'max-age=31536000',
+                'X-Content-Type-Options' => 'nosniff',
+                'X-Frame-Options' => 'DENY',
+                'Referrer-Policy' => 'no-referrer',
+                'X-Permitted-Cross-Domain-Policies' => 'none',
+                'Set-Cookie' => [
+                    'XSRF-TOKEN=abc; Secure; SameSite=Lax',
+                    'laravel_session=abc; Secure; HttpOnly; SameSite=Lax',
+                ],
+            ], 'body'),
+        ]);
+
+        self::assertSame([], $findings);
+    }
+
+    public function testAnXsrfCookieStillNeedsTheOtherFlags(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [
+                'Content-Security-Policy' => "default-src 'self'",
+                'Strict-Transport-Security' => 'max-age=31536000',
+                'X-Content-Type-Options' => 'nosniff',
+                'X-Frame-Options' => 'DENY',
+                'Referrer-Policy' => 'no-referrer',
+                'X-Permitted-Cross-Domain-Policies' => 'none',
+                'Set-Cookie' => ['XSRF-TOKEN=abc; HttpOnly; SameSite=Lax'],
+            ], 'body'),
+        ]);
+
+        $cookie = null;
+        foreach ($findings as $finding) {
+            if ($finding->id === 'cookie-flags-xsrf-token') {
+                $cookie = $finding;
+                break;
+            }
+        }
+
+        self::assertNotNull($cookie);
+        self::assertSame('Cookie "XSRF-TOKEN" is missing Secure', $cookie->title);
+    }
+
+    public function testAnOrdinaryCookieThatMentionsCsrfStillNeedsHttpOnly(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [
+                'Content-Security-Policy' => "default-src 'self'",
+                'Strict-Transport-Security' => 'max-age=31536000',
+                'X-Content-Type-Options' => 'nosniff',
+                'X-Frame-Options' => 'DENY',
+                'Referrer-Policy' => 'no-referrer',
+                'X-Permitted-Cross-Domain-Policies' => 'none',
+                'Set-Cookie' => ['xsrf_session=abc; Secure; SameSite=Lax'],
+            ], 'body'),
+        ]);
+
+        $ids = array_map(static fn ($f): string => $f->id, $findings);
+        self::assertContains('cookie-flags-xsrf_session', $ids);
+    }
+
+    public function testBlobSourcesAreNotReportedAsCspWildcards(): void
+    {
+        $findings = $this->check->analyze(new Target('https://example.com'), [
+            '/' => new Response(200, [
+                'Content-Security-Policy' => "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob:",
+                'Strict-Transport-Security' => 'max-age=31536000',
+                'X-Content-Type-Options' => 'nosniff',
+                'X-Frame-Options' => 'DENY',
+                'Referrer-Policy' => 'no-referrer',
+                'X-Permitted-Cross-Domain-Policies' => 'none',
+            ], 'body'),
+        ]);
+
+        $ids = array_map(static fn ($f): string => $f->id, $findings);
+        self::assertNotContains('insecure-csp', $ids);
+    }
+
     public function testACookieCarryingEveryFlagIsNotReported(): void
     {
         $findings = $this->check->analyze(new Target('https://example.com'), [

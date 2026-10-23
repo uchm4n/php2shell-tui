@@ -95,6 +95,12 @@ final class SecurityHeaders implements Check
                 }
             }
 
+            // Laravel's XSRF-TOKEN is deliberately readable by JavaScript; the
+            // session cookie is the one that must stay HttpOnly.
+            if (self::isCsrfCookie($name)) {
+                $missing = array_values(array_filter($missing, static fn (string $flag): bool => $flag !== 'HttpOnly'));
+            }
+
             if ($missing === []) {
                 continue;
             }
@@ -149,10 +155,24 @@ final class SecurityHeaders implements Check
         }
 
         foreach ($errors as $error) {
-            $problems[] = trim(strip_tags($error->getMessage()));
+            $message = trim(strip_tags($error->getMessage()));
+
+            // blob: and data: are not network-host wildcards. They are common
+            // in img/media/worker/frame directives and do not let an arbitrary
+            // origin into the page.
+            if (preg_match('/wildcard (?:blob:|data:)/i', $message) === 1) {
+                continue;
+            }
+
+            $problems[] = $message;
         }
 
-        return $problems;
+        return array_values(array_unique($problems));
+    }
+
+    private static function isCsrfCookie(string $name): bool
+    {
+        return preg_match('/^(?:XSRF[-_]TOKEN|CSRF[-_]?TOKEN|CSRF)$/i', $name) === 1;
     }
 
     private static function cookieName(string $cookie): string

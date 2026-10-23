@@ -108,19 +108,135 @@ final class EngineTest extends TestCase
         };
 
         $urls = [];
-        $engine = self::engine([$check], static fn (): ResponseInterface => new Response(200, [], 'ok'), $urls);
+        $engine = self::engine([$check], static function (RequestInterface $request): ResponseInterface {
+            return str_contains($request->getUri()->getPath(), 'php2shell-control')
+                ? new Response(404, [], 'Not Found')
+                : new Response(200, [], 'ok');
+        }, $urls);
 
         $engine->run(Config::fromArray([
             'targets' => ['https://one.example/'],
             'checks' => ['php_presence' => true],
         ]));
 
-        // The root is the baseline: it is not requested a second time.
-        self::assertSame(['https://one.example/', 'https://one.example/.env'], $urls);
+        // The root is the baseline: it is not requested a second time. The two
+        // extra requests are the catch-all controls.
+        self::assertSame('https://one.example/', $urls[0]);
+        self::assertSame('https://one.example/.env', $urls[1]);
+        self::assertSame(2, count(array_filter($urls, static fn (string $url): bool => str_contains($url, 'php2shell-control-'))));
 
         self::assertArrayHasKey('/', $check->responses);
         self::assertArrayHasKey('/.env', $check->responses);
         self::assertSame(200, $check->responses['/']->getStatusCode());
+    }
+
+    public function testEachCheckOnlyReceivesThePathsItRequested(): void
+    {
+        $first = new class implements Check {
+            /** @var array<string, ResponseInterface> */
+            public array $responses = [];
+
+            public function id(): string
+            {
+                return 'php_presence';
+            }
+
+            public function paths(Target $target, ?ResponseInterface $baseline): array
+            {
+                return ['/', '/.env'];
+            }
+
+            public function analyze(Target $target, array $responses): array
+            {
+                $this->responses = $responses;
+
+                return [];
+            }
+        };
+
+        $second = new class implements Check {
+            /** @var array<string, ResponseInterface> */
+            public array $responses = [];
+
+            public function id(): string
+            {
+                return 'sensitive_files';
+            }
+
+            public function paths(Target $target, ?ResponseInterface $baseline): array
+            {
+                return ['/composer.json'];
+            }
+
+            public function analyze(Target $target, array $responses): array
+            {
+                $this->responses = $responses;
+
+                return [];
+            }
+        };
+
+        $urls = [];
+        $engine = self::engine([$first, $second], static function (RequestInterface $request): ResponseInterface {
+            $path = $request->getUri()->getPath();
+
+            if (str_contains($path, 'php2shell-control')) {
+                return new Response(404, [], 'Not Found');
+            }
+
+            return new Response(200, [], 'body for ' . $path);
+        }, $urls);
+
+        $engine->run(Config::fromArray([
+            'targets' => ['https://one.example/'],
+            'checks' => ['php_presence' => true, 'sensitive_files' => true],
+        ]));
+
+        self::assertSame(['/', '/.env'], array_keys($first->responses));
+        self::assertSame(['/composer.json'], array_keys($second->responses));
+    }
+
+    public function testAResponseThatMatchesTheControlPageIsNotGivenToACheck(): void
+    {
+        $check = new class implements Check {
+            /** @var array<string, ResponseInterface> */
+            public array $responses = [];
+
+            public function id(): string
+            {
+                return 'sensitive_files';
+            }
+
+            public function paths(Target $target, ?ResponseInterface $baseline): array
+            {
+                return ['/backup.zip', '/.env'];
+            }
+
+            public function analyze(Target $target, array $responses): array
+            {
+                $this->responses = $responses;
+
+                return [];
+            }
+        };
+
+        $urls = [];
+        $engine = self::engine([$check], static function (RequestInterface $request): ResponseInterface {
+            $path = $request->getUri()->getPath();
+
+            if (str_contains($path, 'php2shell-control') || $path === '/backup.zip') {
+                return new Response(200, [], '<html>single page application</html>');
+            }
+
+            return new Response(200, [], "APP_KEY=base64:abc\n");
+        }, $urls);
+
+        $engine->run(Config::fromArray([
+            'targets' => ['https://one.example/'],
+            'checks' => ['sensitive_files' => true],
+        ]));
+
+        self::assertSame(['/.env'], array_keys($check->responses));
     }
 
     public function testProgressIsReportedAsRequestsSettle(): void
@@ -139,12 +255,20 @@ final class EngineTest extends TestCase
             },
         );
 
-        self::assertSame(['baseline', 'baseline', 'probe', 'probe', 'analyse', 'analyse'], array_column($events, 'phase'));
+        $phases = array_column($events, 'phase');
+        self::assertSame(['baseline', 'baseline'], array_slice($phases, 0, 2));
+        self::assertSame(['analyse', 'analyse'], array_slice($phases, -2));
+        self::assertCount(6, array_filter($phases, static fn (string $phase): bool => $phase === 'probe'));
+
         self::assertSame(['one.example', 'two.example'], array_column(array_slice($events, 0, 2), 'label'));
         self::assertSame([1, 2], array_column(array_slice($events, 0, 2), 'done'));
         self::assertSame([2, 2], array_column(array_slice($events, 0, 2), 'total'));
-        self::assertSame([1, 2], array_column(array_slice($events, 2, 2), 'done'));
-        self::assertSame([2, 2], array_column(array_slice($events, 2, 2), 'total'));
+
+        $probeEvents = array_values(array_filter($events, static fn (array $event): bool => $event['phase'] === 'probe'));
+        $done = array_column($probeEvents, 'done');
+        sort($done);
+        self::assertSame([1, 2, 3, 4, 5, 6], $done);
+        self::assertSame([6, 6, 6, 6, 6, 6], array_column($probeEvents, 'total'));
     }
 
     public function testACheckThatIsNotEnabledIsNeverRun(): void

@@ -90,11 +90,72 @@ final class SensitiveFilesTest extends TestCase
         self::assertSame(Severity::High, $phpmyadmin[0]->severity);
     }
 
+    public function testTargetExtraPathsAreNotSensitiveFileProbes(): void
+    {
+        $paths = $this->check->paths(
+            new Target('https://legacy.example.com', null, ['/admin', '/login']),
+            null,
+        );
+
+        self::assertNotContains('/admin', $paths);
+        self::assertNotContains('/login', $paths);
+    }
+
+    public function testAnEnvFileWithExportLinesIsStillReported(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/.env' => new Response(200, [], "export APP_KEY=base64:abc\n"),
+        ]);
+
+        self::assertCount(1, $findings);
+    }
+
+    public function testAnHtmlCatchAllPageIsNotALeakedEnvFile(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/.env' => new Response(200, ['Content-Type' => 'text/html'], '<html><body>Login token password</body></html>'),
+        ]);
+
+        self::assertSame([], $findings);
+    }
+
+    public function testAnHtmlCatchAllPageIsNotALeakedBackup(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/backup.zip' => new Response(200, [], '<html>Not found</html>'),
+        ]);
+
+        self::assertSame([], $findings);
+    }
+
+    public function testARealZipBackupIsReported(): void
+    {
+        $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/backup.zip' => new Response(200, [], "PK\x03\x04rest of the archive"),
+        ]);
+
+        self::assertCount(1, $findings);
+        self::assertSame(Severity::High, $findings[0]->severity);
+    }
+
+    public function testAnExposedPhpinfoPageRequiresPhpinfoMarkers(): void
+    {
+        $benign = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/phpinfo.php' => new Response(200, [], '<html>Login page</html>'),
+        ]);
+        $phpinfo = $this->check->analyze(new Target('https://legacy.example.com'), [
+            '/phpinfo.php' => new Response(200, [], '<html><title>phpinfo()</title>PHP Version 8.2.29</html>'),
+        ]);
+
+        self::assertSame([], $benign);
+        self::assertCount(1, $phpinfo);
+    }
+
     public function testEveryFindingCarriesAReproduceStep(): void
     {
         $findings = $this->check->analyze(new Target('https://legacy.example.com'), [
             '/.env' => new Response(200, [], "APP_KEY=abc\n"),
-            '/composer.lock' => new Response(200, [], '{}'),
+            '/composer.lock' => new Response(200, [], '{"packages":[]}'),
         ]);
 
         foreach ($findings as $finding) {

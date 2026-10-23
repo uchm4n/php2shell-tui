@@ -59,11 +59,17 @@ final class AppFingerprint implements Check
                 $version = self::detectVersion($product, (string)$response->getBody()) ?? $version;
             }
 
-            if ($product === 'WordPress' && preg_match('/wp-content|wp-includes/i', $body) === 1 && $version === null) {
+            if ($product === 'WordPress'
+                && $version === null
+                && (self::references($target, $body, 'wp-content')
+                    || self::references($target, $body, 'wp-includes')
+                    || self::references($target, $body, 'wp-json'))) {
                 $version = 'version not disclosed';
             }
 
-            if ($product === 'Next.js' && preg_match('/\/_next\/static\//i', $body) === 1 && $version === null) {
+            if ($product === 'Next.js'
+                && $version === null
+                && self::references($target, $body, '_next/static')) {
                 $version = 'version not disclosed';
             }
 
@@ -83,6 +89,61 @@ final class AppFingerprint implements Check
         }
 
         return $findings;
+    }
+
+    /**
+     * Does the page reference the product path on its own origin?
+     *
+     * A link to an external CDN that happens to contain "/wp-content/" is not
+     * evidence that this host runs WordPress.
+     */
+    private static function references(Target $target, string $body, string $path): bool
+    {
+        $needle = strtolower(trim($path, '/'));
+        $hosts = [];
+
+        foreach ([$target->host(), $target->vhost] as $host) {
+            if ($host !== null && $host !== '') {
+                $hosts[] = strtolower($host);
+            }
+        }
+
+        if (preg_match_all('/\b(?:src|href|action)\s*=\s*(["\'])(.*?)\1/is', $body, $matches) === false) {
+            return false;
+        }
+
+        foreach ($matches[2] as $value) {
+            $url = html_entity_decode(trim($value), ENT_QUOTES | ENT_HTML5);
+
+            if ($url === ''
+                || str_starts_with($url, '#')
+                || str_starts_with($url, 'data:')
+                || str_starts_with($url, 'javascript:')) {
+                continue;
+            }
+
+            if (str_starts_with($url, '//')) {
+                $url = 'https:' . $url;
+            }
+
+            $parts = parse_url($url);
+
+            if ($parts === false) {
+                continue;
+            }
+
+            if (isset($parts['host']) && !in_array(strtolower($parts['host']), $hosts, true)) {
+                continue;
+            }
+
+            $pathPart = strtolower($parts['path'] ?? $url);
+
+            if (str_contains($pathPart, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function detectVersion(string $product, string $body): ?string

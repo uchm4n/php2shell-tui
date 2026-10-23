@@ -68,34 +68,57 @@ final class Engine
             $reachable[$index] = ['target' => $target, 'baseline' => $response];
         }
 
-        // Phase 2 - prefetch every path every check asked for.
+        // Phase 2 - prefetch every path every check asked for. The paths are
+        // tracked per check so a check never analyses another check's probes.
         $requests = [];
         $requestIndex = [];
+        $pathsByCheck = [];
+        $controlIndex = [];
         $labels = [];
 
         foreach ($reachable as $index => $entry) {
             $target = $entry['target'];
-            $paths = [];
-
-            foreach ($checks as $check) {
-                foreach ($check->paths($target, $entry['baseline']) as $path) {
-                    $paths[] = $path;
-                }
-            }
 
             // The root is the baseline: it was fetched in phase 1 and is not
             // requested again.
             $seen = [self::normalise($target->url) => true];
+            $hasProbe = false;
 
-            foreach (array_unique($paths) as $path) {
+            foreach ($checks as $check) {
+                $paths = array_values(array_unique($check->paths($target, $entry['baseline'])));
+                $pathsByCheck[$index][$check->id()] = $paths;
+
+                foreach ($paths as $path) {
+                    if ($path !== '/') {
+                        $hasProbe = true;
+                    }
+
+                    $url = $this->urlFor($target, $path);
+
+                    if (isset($seen[self::normalise($url)])) {
+                        continue;
+                    }
+                    $seen[self::normalise($url)] = true;
+
+                    $requestIndex[$index][$path] = count($requests);
+                    $requests[] = ['url' => $url, 'headers' => $target->requestHeaders()];
+                    $labels[$url] ??= $target->label();
+                }
+            }
+
+            // Two control paths prove whether this host serves one catch-all
+            // page for unknown paths. They are only needed when a check probes
+            // a path other than the baseline, and a target URL with a query
+            // string cannot carry a reliable relative probe.
+            if (!$hasProbe || parse_url($target->url, PHP_URL_QUERY) !== null) {
+                continue;
+            }
+
+            for ($i = 0; $i < 2; $i++) {
+                $path = '/php2shell-control-' . bin2hex(random_bytes(8));
                 $url = $this->urlFor($target, $path);
 
-                if (isset($seen[self::normalise($url)])) {
-                    continue;
-                }
-                $seen[self::normalise($url)] = true;
-
-                $requestIndex[$index][$path] = count($requests);
+                $controlIndex[$index][] = count($requests);
                 $requests[] = ['url' => $url, 'headers' => $target->requestHeaders()];
                 $labels[$url] ??= $target->label();
             }
@@ -112,21 +135,38 @@ final class Engine
 
         foreach ($reachable as $index => $entry) {
             $target = $entry['target'];
-            $perTarget = [];
-
-            // The baseline was already fetched in phase 1; reuse it rather than
-            // requesting every target's root a second time.
-            $perTarget['/'] = $entry['baseline'];
-
-            foreach ($requestIndex[$index] ?? [] as $path => $position) {
-                $response = $responses[$position]['response'] ?? null;
-                if ($response !== null) {
-                    $perTarget[$path] = $response;
-                }
-            }
+            $controlHash = self::controlHash($responses, $controlIndex[$index] ?? []);
 
             foreach ($checks as $check) {
-                foreach ($check->analyze($target, $perTarget) as $finding) {
+                $perCheck = [];
+
+                foreach ($pathsByCheck[$index][$check->id()] ?? [] as $path) {
+                    if ($path === '/') {
+                        // The baseline was already fetched in phase 1; reuse it
+                        // rather than requesting every target's root again.
+                        $perCheck['/'] = $entry['baseline'];
+                        continue;
+                    }
+
+                    $position = $requestIndex[$index][$path] ?? null;
+                    $response = $position === null ? null : ($responses[$position]['response'] ?? null);
+
+                    if ($response === null) {
+                        continue;
+                    }
+
+                    // A path that serves the same page as two random paths is
+                    // the site's catch-all document, not an exposed file.
+                    if ($controlHash !== null
+                        && $response->getStatusCode() === 200
+                        && self::bodyFingerprint((string) $response->getBody()) === $controlHash) {
+                        continue;
+                    }
+
+                    $perCheck[$path] = $response;
+                }
+
+                foreach ($check->analyze($target, $perCheck) as $finding) {
                     $findings[] = $finding;
                 }
             }
@@ -138,6 +178,50 @@ final class Engine
         }
 
         return new ScanResult($findings, $unreachable, $unscannable, microtime(true) - $started);
+    }
+
+    /**
+     * The fingerprint of the site's catch-all page, or null when the two
+     * control requests do not prove one exists.
+     *
+     * @param list<array{url: string, response: ResponseInterface|null, error: string|null}> $responses
+     * @param list<int> $positions
+     */
+    private static function controlHash(array $responses, array $positions): ?string
+    {
+        if (count($positions) !== 2) {
+            return null;
+        }
+
+        $fingerprints = [];
+
+        foreach ($positions as $position) {
+            $response = $responses[$position]['response'] ?? null;
+
+            if ($response === null || $response->getStatusCode() !== 200) {
+                return null;
+            }
+
+            $body = (string) $response->getBody();
+            if (trim($body) === '') {
+                return null;
+            }
+
+            $fingerprints[] = self::bodyFingerprint($body);
+        }
+
+        return $fingerprints[0] === $fingerprints[1] ? $fingerprints[0] : null;
+    }
+
+    /**
+     * Whitespace-insensitive so a server that reformats the same page between
+     * requests is still recognised as a catch-all.
+     */
+    private static function bodyFingerprint(string $body): string
+    {
+        $normalised = preg_replace('/\s+/', ' ', trim($body));
+
+        return hash('sha256', $normalised ?? $body);
     }
 
     private function urlFor(Target $target, string $path): string

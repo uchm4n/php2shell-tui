@@ -102,7 +102,7 @@ final class ScanCommand extends Command
                 'tls' => new Tls($reproduce),
                 'app_fingerprint' => new AppFingerprint($reproduce),
                 'webshell_indicators' => new WebshellIndicators($wordlists, $reproduce),
-                'open_ports' => new OpenPorts($wordlists, $reproduce),
+                'open_ports' => new OpenPorts($wordlists, $reproduce, client: $client),
             ];
 
             if ($verify && $config->checkEnabled('injection')) {
