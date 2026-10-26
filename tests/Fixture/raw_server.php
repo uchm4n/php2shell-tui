@@ -30,6 +30,22 @@ if ($client === false) {
 stream_set_timeout($client, 5);
 $data = '';
 
+if ($mode === 'early') {
+    while (!str_contains($data, "\r\n\r\n")) {
+        $chunk = fread($client, 8192);
+        if ($chunk === false || $chunk === '') {
+            break;
+        }
+        $data .= $chunk;
+    }
+
+    file_put_contents($capture, $data);
+    fwrite($client, "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nEARLY");
+    fclose($client);
+    fclose($server);
+    exit;
+}
+
 if ($mode === 'interim') {
     while (!str_contains($data, "\r\n\r\n")) {
         $chunk = fread($client, 8192);
