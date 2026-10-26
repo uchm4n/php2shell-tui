@@ -113,6 +113,7 @@ final class ScanCommand extends Command
                 'php2shell' => new Php2Shell(
                     $reproduce,
                     $verify,
+                    $db,
                     new Php2ShellPoc(
                         client: $client,
                         timeout: $config->pocTimeout,

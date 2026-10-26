@@ -113,6 +113,16 @@ final class PhpChecksTest extends TestCase
         self::assertSame(Severity::High, $findings[0]->severity);
     }
 
+    public function testItFindsAVersionOnlyInTheBaselineBody(): void
+    {
+        $findings = (new PhpVersion($this->db, $this->reproduce))->analyze($this->target, [
+            '/' => new Response(200, [], '<p>PHP Version 8.4.26</p>'),
+        ]);
+
+        self::assertSame(Severity::Critical, $findings[0]->severity);
+        self::assertStringContainsString('8.4.26', $findings[0]->evidence);
+    }
+
     public static function preReleases(): array
     {
         return [

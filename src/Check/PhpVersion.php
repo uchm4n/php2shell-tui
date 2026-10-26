@@ -6,6 +6,7 @@ namespace Php2ShellTui\Check;
 
 use Php2ShellTui\Data\Reproduce;
 use Php2ShellTui\Finding;
+use Php2ShellTui\PhpFingerprint;
 use Php2ShellTui\PhpVersionAssessment;
 use Php2ShellTui\PhpVersionDb;
 use Php2ShellTui\Severity;
@@ -27,51 +28,7 @@ final class PhpVersion implements Check
 
     public function paths(Target $target, ?ResponseInterface $baseline): array
     {
-        return ['/', '/phpinfo.php', '/info.php'];
-    }
-
-    /**
-     * Every PHP version the target advertises, with where it came from.
-     *
-     * @param array<string, ResponseInterface> $responses
-     * @return list<array{version: string, source: string, confidence: string}>
-     */
-    private function candidates(array $responses): array
-    {
-        $candidates = [];
-
-        $baseline = $responses['/'] ?? null;
-
-        if ($baseline !== null) {
-            foreach ([['X-Powered-By', 'high'], ['Server', 'medium']] as [$header, $confidence]) {
-                $value = $baseline->getHeaderLine($header);
-                if ($value === '') {
-                    continue;
-                }
-
-                if (preg_match_all('/PHP[ \/](\d+\.\d+(?:\.\d+)?[A-Za-z0-9.\-]*)/i', $value, $matches) === false) {
-                    continue;
-                }
-
-                foreach ($matches[1] as $version) {
-                    $candidates[] = ['version' => $version, 'source' => $header, 'confidence' => $confidence];
-                }
-            }
-        }
-
-        foreach (['/phpinfo.php', '/info.php'] as $path) {
-            $response = $responses[$path] ?? null;
-            if ($response === null || $response->getStatusCode() !== 200) {
-                continue;
-            }
-
-            $body = (string) $response->getBody();
-            if (preg_match('/PHP Version (\d+\.\d+(?:\.\d+)?[A-Za-z0-9.\-]*)/i', $body, $m) === 1) {
-                $candidates[] = ['version' => $m[1], 'source' => $path, 'confidence' => 'medium'];
-            }
-        }
-
-        return $candidates;
+        return PhpFingerprint::paths();
     }
 
     /**
@@ -107,7 +64,7 @@ final class PhpVersion implements Check
     public function analyze(Target $target, array $responses): array
     {
         $steps = $this->reproduce->steps('php2shell-version', $target->url, $target->label());
-        $candidates = $this->candidates($responses);
+        $candidates = PhpFingerprint::fromResponses($responses)->versions();
 
         if ($candidates === []) {
             $baseline = $responses['/'] ?? null;
