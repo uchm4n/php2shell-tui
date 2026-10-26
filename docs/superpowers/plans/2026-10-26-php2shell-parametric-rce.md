@@ -1572,8 +1572,12 @@ Assert zero payload bytes and the correct Info reason for:
 
 - [ ] **Step 4: Hidden version**
 
-Set `expose_php=Off`, remove `phpinfo.php`, and run with `--verify --php-version 8.4.26 --arch amd64 --workers 1`.
-Assert the real marker proof still succeeds; the exposure finding says version undetermined.
+Keep `expose_php=On` so the build matches the calibration, remove `phpinfo.php`, and strip
+`X-Powered-By` at the edge (or otherwise ensure no HTTP response carries a PHP version). Run with
+`--verify --php-version 8.4.26 --arch amd64 --workers 1`.
+Assert the real marker proof succeeds and the audit finding says no PHP version was disclosed.
+A genuine `expose_php=Off` build changes the heap layout; record its result separately. If the
+chain runs but no proof is retrievable, report that limitation; do not claim RCE.
 
 - [ ] **Step 5: Go scanner cross-check**
 

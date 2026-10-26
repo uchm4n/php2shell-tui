@@ -164,43 +164,6 @@ final class ScanCommandTest extends TestCase
         ]);
     }
 
-    private function php2shellGuessConfig(int $port): string
-    {
-        return $this->writeConfig([
-            'targets' => [[
-                'url' => 'http://127.0.0.1:' . $port . '/',
-                'post_path' => '/index.php',
-            ]],
-            'checks' => ['php2shell' => true],
-            'poc' => [
-                'guess' => true,
-                'arch' => 'amd64',
-                'workers' => 2,
-                'max_attempts' => 1,
-                'total_timeout' => 10,
-                'profiles' => ['php-8.4.26-apache-bookworm-amd64'],
-            ],
-        ]);
-    }
-
-    public function testThePhp2ShellGuessDoesNotRunWithoutVerify(): void
-    {
-        [$port, $process] = $this->fixture();
-
-        try {
-            [$code, $output] = $this->runCommand([
-                'command' => 'scan',
-                '--config' => $this->php2shellGuessConfig($port),
-                '--format' => 'json',
-            ]);
-
-            self::assertNotSame(2, $code);
-            self::assertStringNotContainsString('php2shell-rce', $output);
-        } finally {
-            self::killServer($process, $port);
-        }
-    }
-
     public function testThePhp2ShellDoesNotRunWithoutVerify(): void
     {
         [$port, $process] = $this->fixture();
@@ -214,6 +177,7 @@ final class ScanCommandTest extends TestCase
 
             self::assertNotSame(2, $code);
             self::assertStringNotContainsString('php2shell-rce', $output);
+            self::assertNoFixturePosts($port);
         } finally {
             self::killServer($process, $port);
         }
@@ -232,15 +196,15 @@ final class ScanCommandTest extends TestCase
             ]);
 
             self::assertNotSame(2, $code);
-            self::assertStringContainsString('php2shell-poc-inconclusive', $output);
-            self::assertStringContainsString('workers', $output);
+            self::assertStringContainsString('RCE proof not obtained: workers are not configured', $output);
             self::assertStringNotContainsString('php2shell-rce', $output);
+            self::assertNoFixturePosts($port);
         } finally {
             self::killServer($process, $port);
         }
     }
 
-    public function testThePhp2ShellVerifyWithoutAProfileSendsNoPayload(): void
+    public function testThePhp2ShellVerifyRefusesAContradictoryVersionOverride(): void
     {
         [$port, $process] = $this->fixture();
 
@@ -263,8 +227,9 @@ final class ScanCommandTest extends TestCase
             ]);
 
             self::assertNotSame(2, $code);
-            self::assertStringContainsString('no calibrated profile', $output);
+            self::assertStringContainsString('refusing the 7.4.33 override', $output);
             self::assertStringNotContainsString('php2shell-rce', $output);
+            self::assertNoFixturePosts($port);
         } finally {
             self::killServer($process, $port);
         }
@@ -339,18 +304,40 @@ final class ScanCommandTest extends TestCase
      */
     private static function startServer(int $port)
     {
+        @unlink(self::postLog($port));
+
         $process = proc_open(
             sprintf('exec php -S 127.0.0.1:%d %s', $port, escapeshellarg(__DIR__ . '/../Fixture/server.php')),
             [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
             $pipes,
             null,
             // The built-in server is single threaded unless it forks workers.
-            array_merge(getenv(), ['PHP_CLI_SERVER_WORKERS' => '8'])
+            array_merge(getenv(), [
+                'PHP_CLI_SERVER_WORKERS' => '8',
+                'P2S_FIXTURE_POST_LOG' => self::postLog($port),
+            ])
         );
 
         self::waitForServer($port);
 
         return $process;
+    }
+
+    private static function postLog(int $port): string
+    {
+        return sys_get_temp_dir() . '/p2s-fixture-post-' . $port;
+    }
+
+    private function assertNoFixturePosts(int $port): void
+    {
+        $log = self::postLog($port);
+        if (!is_file($log)) {
+            self::assertTrue(true);
+
+            return;
+        }
+
+        self::assertSame('', trim((string) file_get_contents($log)), 'the fixture received a POST');
     }
 
     private static function waitForServer(int $port): void
@@ -394,5 +381,7 @@ final class ScanCommandTest extends TestCase
             proc_terminate($process, SIGKILL);
             proc_close($process);
         }
+
+        @unlink(self::postLog($port));
     }
 }

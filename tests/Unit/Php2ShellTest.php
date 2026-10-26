@@ -341,7 +341,43 @@ final class Php2ShellTest extends TestCase
         self::assertStringContainsString('do not treat this as safe', $info->exploit);
     }
 
-    public function testACliVersionOverrideSelectsTheRequestedProfile(): void
+    public function testAPatchedHeaderIsNotOverriddenByALowConfidenceBodyVersion(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, [
+            '/' => new Response(200, ['X-Powered-By' => 'PHP/8.4.27'], '<p>PHP Version 8.4.26</p>'),
+        ]);
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('8.4.27', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testConflictingTrustedVersionsAreRefused(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, [
+            '/' => new Response(200, [
+                'X-Powered-By' => 'PHP/8.4.27',
+                'Server' => 'Apache/2.4.69 (Debian) PHP/8.4.26',
+            ], 'OK'),
+        ]);
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('conflicting', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testALowConfidenceBodyVersionIsNotAutoVerified(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, [
+            '/' => new Response(200, [], '<p>PHP Version 8.4.26</p>'),
+        ]);
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('low-confidence', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testAContradictoryVersionOverrideIsRefused(): void
     {
         $calls = [];
         $findings = $this->check(
@@ -349,10 +385,138 @@ final class Php2ShellTest extends TestCase
             new PocPlan(version: '8.4.26', workers: 1, memoryLimitMb: 128),
         )->analyze($this->target, $this->responses(['version' => '8.5.12']));
 
+        self::assertSame([], $calls);
+        self::assertStringContainsString('8.5.12', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testAHiddenVersionOverrideSelectsTheProfile(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(version: '8.4.26', workers: 1, memoryLimitMb: 128),
+        )->analyze($this->target, [
+            '/' => new Response(200, ['Server' => 'Apache/2.4.69 (Debian)'], 'OK'),
+        ]);
+
         self::assertSame([['php-8.4.26-bookworm-amd64', 128, 1]], $calls);
         self::assertSame(
             1,
             count(array_filter($findings, static fn (Finding $f): bool => $f->id === 'php2shell-rce')),
         );
+    }
+
+    public function testTheExposureNamesTheMatchingCalibratedProfile(): void
+    {
+        $check = new Php2Shell(
+            $this->reproduce,
+            false,
+            $this->db,
+            null,
+            new ProfileCatalog(__DIR__ . '/../../src/Data/poc'),
+        );
+        $findings = $check->analyze($this->target, $this->responses());
+        $exposure = array_values(array_filter(
+            $findings,
+            static fn (Finding $f): bool => $f->id === 'php2shell-exposure',
+        ))[0];
+
+        self::assertStringContainsString('profile=php-8.4.26-bookworm-amd64', $exposure->evidence);
+    }
+
+    public function testUnknownMemoryDoesNotCloseThePostMaxCheck(): void
+    {
+        $check = new Php2Shell(
+            $this->reproduce,
+            false,
+            $this->db,
+            null,
+            new ProfileCatalog(__DIR__ . '/../../src/Data/poc'),
+        );
+        $findings = $check->analyze($this->target, $this->responses([
+            'memory_limit' => '',
+            'post_max_size' => '256M',
+        ]));
+
+        self::assertSame(Severity::High, $findings[0]->severity);
+        self::assertStringContainsString('post_max_size=256M', $findings[0]->evidence);
+        self::assertStringNotContainsString('post_max_size=256M (NOT MET)', $findings[0]->evidence);
+    }
+
+    public function testTheSameOomBoundaryIsUsedAtEightMiB(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: 8),
+        )->analyze($this->target, $this->responses([
+            'memory_limit' => '8M',
+            'post_max_size' => '12M',
+        ]));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('post_max_size', $this->inconclusive($findings)->evidence);
+
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: 8),
+        )->analyze($this->target, $this->responses([
+            'memory_limit' => '8M',
+            'post_max_size' => '16M',
+        ]));
+
+        self::assertCount(1, $calls);
+        self::assertSame(
+            1,
+            count(array_filter($findings, static fn (Finding $f): bool => $f->id === 'php2shell-rce')),
+        );
+    }
+
+    public function testTheSameOomBoundaryIsUsedAt128MiB(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: 128),
+        )->analyze($this->target, $this->responses([
+            'memory_limit' => '128M',
+            'post_max_size' => '140M',
+        ]));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('post_max_size', $this->inconclusive($findings)->evidence);
+
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: 128),
+        )->analyze($this->target, $this->responses([
+            'memory_limit' => '128M',
+            'post_max_size' => '141M',
+        ]));
+
+        self::assertCount(1, $calls);
+        self::assertSame(
+            1,
+            count(array_filter($findings, static fn (Finding $f): bool => $f->id === 'php2shell-rce')),
+        );
+    }
+
+    public function testInferredModPhpIsReportedAsInferred(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, [
+            '/' => new Response(200, [
+                'X-Powered-By' => 'PHP/8.4.26',
+                'Server' => 'Apache/2.4.69 (Debian)',
+            ], 'OK'),
+        ]);
+        $exposure = array_values(array_filter(
+            $findings,
+            static fn (Finding $f): bool => $f->id === 'php2shell-exposure',
+        ))[0];
+
+        self::assertStringContainsString('SAPI: inferred: mod_php', $exposure->evidence);
     }
 }

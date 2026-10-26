@@ -11,7 +11,9 @@ Use it only on hosts you own or are authorized to test.
 with no POST. With `--verify` it runs the real parametric PHP2Shell chain only when the target
 matches one of the five calibrated build profiles. A failed attempt is reported as "proof not
 obtained", never as safe. There is no canary and no arming probe. HTTPS uses verified TLS but is
-not lab-verified; FPM is refused because the calibrated chain is mod_php only.
+not lab-verified. An observed FPM SAPI is refused; an Apache+PHP header inference is treated as
+unknown, not proof of mod_php. An unknown or inferred SAPI may be attempted under `--verify`, and
+only the unique marker proves the chain.
 
 <img src="./screenshot.png" alt="php2shell-tui" width="600">
 
@@ -116,7 +118,9 @@ unique marker is returned. A failed attempt is “proof not obtained,” never �
 
 Before a payload is sent, the scanner requires: the exact version+arch profile, mod_php,
 `session.upload_progress.enabled=On`, `display_errors=On`, `session.use_strict_mode=0`, a finite
-`memory_limit`, and `post_max_size` above `memory_limit + 12`. Known failures send zero payload.
+`memory_limit`, and `post_max_size` above the OOM field size (the profile's `oom_mb` at 8M,
+otherwise `memory_limit + 12`). Known failures send zero payload. If the memory probe cannot read
+the target, the tool uses the profile default and says so; pass `--memory-limit` in that case.
 The chain is intrusive — worker rotation, half-open pinning, 12 MB+ bodies — so run it only with
 authorization. The TUI shows `verify 1/1`; press `r` to abort and restart.
 
@@ -140,8 +144,8 @@ skipped, and findings ship reproduce steps rather than a destructive payload.
 - PHP versions below the PHP2Shell fix (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12), including EOL branches
   and release candidates
 - A consolidated exploitability finding from phpinfo: SAPI, `session.upload_progress`,
-  `display_errors`, `session.use_strict_mode`, `memory_limit`, `post_max_size`, and the matching
-  calibrated profile
+  `display_errors`, `session.use_strict_mode`, `memory_limit`, `post_max_size`, and
+  `profile=<id|none>` for the matching calibrated build
 - Exposed secrets and debug files: `.env`, backups, `phpinfo`, database consoles
 - Missing or weak security headers (CSP, HSTS, frame and content-type protections)
 - TLS certificates that are expired, expiring soon, or issued for another hostname
@@ -170,8 +174,17 @@ The proof writes a one-character file in the PHP working directory and fetches b
 directory and webroot candidates. If neither returns the marker, the finding says “proof not
 retrievable”; it never claims success without the marker.
 
-HTTPS uses verified TLS but is not lab-verified; treat it as experimental. FPM is refused because
-the calibrated chain is mod_php only.
+HTTPS uses verified TLS but is not lab-verified; treat it as experimental. An observed FPM SAPI is
+refused. Apache+PHP headers are an inference, not proof of mod_php; that unknown SAPI may be
+attempted under `--verify`, and only the marker proves the chain.
+
+If a target hides its version by stripping `X-Powered-By` but keeps `expose_php=On`, the build
+matches the profile and the `--php-version` override can still prove RCE. A genuinely
+`expose_php=Off` build changes the calibrated heap layout; the chain may run but may not produce a
+retrievable proof. The finding says “proof not retrievable,” never “safe.”
+
+The chain writes a one-character proof file in the PHP working directory. Delete that file from the
+target after the proof is fetched.
 
 ```sh
 # detection only, no POST

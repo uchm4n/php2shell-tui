@@ -77,7 +77,7 @@ final class Php2Shell implements Check, ProgressAware
             return [...$findings, $this->inconclusive($target, $reason)];
         }
 
-        [$runPlan, $reason] = $this->gate($target, $fingerprint, $profile, $this->plan);
+        [$runPlan, $reason, $warning] = $this->gate($target, $fingerprint, $profile, $this->plan);
 
         if ($runPlan === null) {
             return [...$findings, $this->inconclusive($target, $reason)];
@@ -96,10 +96,13 @@ final class Php2Shell implements Check, ProgressAware
         }
 
         if (!$result->confirmed) {
-            return [...$findings, $this->inconclusive($target, $result->reason)];
+            return [...$findings, $this->inconclusive(
+                $target,
+                $result->reason . ($warning !== null ? '; ' . $warning : ''),
+            )];
         }
 
-        return [...$findings, $this->rceFinding($target, $profile, $result)];
+        return [...$findings, $this->rceFinding($target, $profile, $result, $warning)];
     }
 
     /**
@@ -107,63 +110,92 @@ final class Php2Shell implements Check, ProgressAware
      */
     private function selectProfile(Target $target, PhpFingerprint $fingerprint, PocPlan $plan): array
     {
-        $explicit = $plan->profile ?? $target->pocProfile;
-        $versions = $plan->version !== null
-            ? [$plan->version]
-            : array_values(array_unique(array_column($fingerprint->versions(), 'version')));
+        $trusted = [];
+        $low = [];
 
-        if ($versions === [] && $explicit === null) {
-            return [null, 'PHP version is unknown; pass --php-version X.Y.Z'];
+        foreach ($fingerprint->versions() as $candidate) {
+            if ($candidate['source'] === 'body') {
+                $low[$candidate['version']] = true;
+            } else {
+                $trusted[$candidate['version']] = true;
+            }
         }
 
-        if ($versions === []) {
-            $selection = $this->catalog->select(null, $plan->arch, $explicit, $fingerprint->serverOs());
+        $trustedVersions = array_keys($trusted);
+        $lowVersions = array_keys($low);
+
+        if (count($trustedVersions) > 1) {
+            return [null, sprintf(
+                'target advertises conflicting PHP versions (%s); refusing verification until it is unambiguous',
+                implode(', ', $trustedVersions),
+            )];
+        }
+
+        $trustedVersion = $trustedVersions[0] ?? null;
+        $explicit = $plan->profile ?? $target->pocProfile;
+
+        if ($explicit !== null) {
+            $selection = $this->catalog->select($trustedVersion, $plan->arch, $explicit, $fingerprint->serverOs());
 
             return [$selection['profile'], $selection['reason']];
         }
 
-        $reason = '';
-        foreach ($versions as $version) {
-            $selection = $this->catalog->select($version, $plan->arch, $explicit, $fingerprint->serverOs());
-
-            if ($selection['profile'] !== null) {
-                return [$selection['profile'], ''];
+        if ($plan->version !== null) {
+            if ($trustedVersion !== null && $trustedVersion !== $plan->version) {
+                return [null, sprintf(
+                    'target advertises PHP %s; refusing the %s override',
+                    $trustedVersion,
+                    $plan->version,
+                )];
             }
 
-            if ($reason === '') {
-                $reason = $selection['reason'];
-            }
+            $selection = $this->catalog->select($plan->version, $plan->arch, null, $fingerprint->serverOs());
+
+            return [$selection['profile'], $selection['reason']];
         }
 
-        return [null, $reason];
+        if ($trustedVersion === null) {
+            if ($lowVersions !== []) {
+                return [null, sprintf(
+                    'only low-confidence PHP version(s) found (%s); pass --php-version X.Y.Z',
+                    implode(', ', $lowVersions),
+                )];
+            }
+
+            return [null, 'PHP version is unknown; pass --php-version X.Y.Z'];
+        }
+
+        $selection = $this->catalog->select($trustedVersion, $plan->arch, null, $fingerprint->serverOs());
+
+        return [$selection['profile'], $selection['reason']];
     }
 
     /**
-     * @return array{0: ?PocPlan, 1: string}
+     * @return array{0: ?PocPlan, 1: string, 2: ?string}
      */
     private function gate(Target $target, PhpFingerprint $fingerprint, Profile $profile, PocPlan $plan): array
     {
         if ($plan->workers === null) {
-            return [null, 'workers are not configured; set poc.workers to the target MaxRequestWorkers (1 for a single-worker lab)'];
+            return [null, 'workers are not configured; set poc.workers to the target MaxRequestWorkers (1 for a single-worker lab)', null];
         }
 
         $sapi = $fingerprint->sapi();
         if (self::sapiStatus($sapi) === 'closed') {
-            return [null, 'the verified chain is mod_php only' . ($sapi !== null ? ' (SAPI: ' . $sapi . ')' : '')];
+            return [null, 'the verified chain is mod_php only' . ($sapi !== null ? ' (SAPI: ' . $sapi . ')' : ''), null];
         }
 
         $ini = $fingerprint->ini();
 
         if (self::flagStatus($ini['session.upload_progress.enabled'] ?? null, 'on') === 'closed') {
-            return [null, 'session.upload_progress.enabled is off'];
+            return [null, 'session.upload_progress.enabled is off', null];
         }
 
         if (self::flagStatus($ini['display_errors'] ?? null, 'on') === 'closed') {
-            return [null, 'display_errors is off; the parametric chain needs it on'];
+            return [null, 'display_errors is off; the parametric chain needs it on', null];
         }
 
         if (self::flagStatus($ini['session.use_strict_mode'] ?? null, 'off') === 'closed') {
-            return [null, 'session.use_strict_mode is on'];
+            return [null, 'session.use_strict_mode is on', null];
         }
 
         $memory = $plan->memoryLimitMb;
@@ -171,7 +203,7 @@ final class Php2Shell implements Check, ProgressAware
         if ($memory === null) {
             $observed = self::sizeToMb($ini['memory_limit'] ?? null);
             if ($observed === -1) {
-                return [null, 'memory_limit is unlimited'];
+                return [null, 'memory_limit is unlimited', null];
             }
             if ($observed !== null) {
                 $memory = $observed;
@@ -182,24 +214,28 @@ final class Php2Shell implements Check, ProgressAware
             $memory = $this->poc?->probeMemoryLimit($target, $plan->requestTimeout);
         }
 
+        $warning = null;
+
         if ($memory === null) {
             $memory = $profile->oomMb();
+            $warning = sprintf(
+                'memory_limit was not observable; using the profile default %dM; pass --memory-limit if the chain fails',
+                $memory,
+            );
         }
 
         if ($memory < 1) {
-            return [null, 'memory_limit is unlimited'];
+            return [null, 'memory_limit is unlimited', null];
         }
 
-        $huge = $memory === 8 && $profile->oomMb() > 0
-            ? $profile->oomMb()
-            : $memory + $profile->oomMarginMb();
+        $huge = self::hugeMb($profile, $memory);
         $postMax = self::sizeToMb($ini['post_max_size'] ?? null);
 
-        if ($postMax !== null && $postMax > 0 && $postMax < $huge) {
-            return [null, sprintf('post_max_size is below the required %dM for memory_limit=%dM', $huge, $memory)];
+        if ($postMax !== null && $postMax > 0 && $postMax <= $huge) {
+            return [null, sprintf('post_max_size is below the required %dM for memory_limit=%dM', $huge, $memory), null];
         }
 
-        return [$plan->withMemoryLimit($memory), ''];
+        return [$plan->withMemoryLimit($memory), '', $warning];
     }
 
     private function reportVerify(Target $target, int $done, int $total): void
@@ -288,7 +324,18 @@ final class Php2Shell implements Check, ProgressAware
         $sapi = $fingerprint->sapi();
         $conditions = [];
         $closed = false;
+        $matchingProfile = null;
 
+        if ($this->catalog !== null) {
+            try {
+                $selection = $this->catalog->select($version, null, null, $fingerprint->serverOs());
+                $matchingProfile = $selection['profile'];
+            } catch (\Throwable) {
+                $matchingProfile = null;
+            }
+        }
+
+        $conditions[] = 'profile=' . ($matchingProfile?->id() ?? 'none');
         $sapiStatus = self::sapiStatus($sapi);
         $conditions[] = 'SAPI: ' . ($sapi ?? 'unknown') . ($sapiStatus === 'closed' ? ' (NOT MET)' : '');
         $closed = $closed || $sapiStatus === 'closed';
@@ -318,8 +365,11 @@ final class Php2Shell implements Check, ProgressAware
         $postMax = self::sizeToMb($ini['post_max_size'] ?? null);
         if ($postMax === null) {
             $conditions[] = 'post_max_size=unknown';
+        } elseif ($memoryLimit === null || $memoryLimit < 1) {
+            $conditions[] = 'post_max_size=' . $ini['post_max_size'];
         } else {
-            $postMaxMet = $postMax <= 0 || ($memoryLimit !== null && $memoryLimit > 0 && $postMax > $memoryLimit + 12);
+            $huge = self::hugeMb($matchingProfile, $memoryLimit);
+            $postMaxMet = $postMax <= 0 || $postMax > $huge;
             $closed = $closed || !$postMaxMet;
             $conditions[] = 'post_max_size=' . $ini['post_max_size'] . ($postMaxMet ? '' : ' (NOT MET)');
         }
@@ -369,6 +419,10 @@ final class Php2Shell implements Check, ProgressAware
             return 'closed';
         }
 
+        if (str_contains($lower, 'inferred: mod_php')) {
+            return 'unknown';
+        }
+
         if (str_contains($lower, 'mod_php') || str_contains($lower, 'apache2handler')) {
             return 'met';
         }
@@ -393,6 +447,15 @@ final class Php2Shell implements Check, ProgressAware
         }
 
         return $isOff ? 'met' : ($isOn ? 'closed' : 'unknown');
+    }
+
+    private static function hugeMb(?Profile $profile, int $memoryLimitMb): int
+    {
+        if ($memoryLimitMb === 8) {
+            return $profile?->oomMb() ?? 12;
+        }
+
+        return $memoryLimitMb + ($profile?->oomMarginMb() ?? 12);
     }
 
     private static function sizeToMb(?string $raw): ?int
@@ -429,19 +492,29 @@ final class Php2Shell implements Check, ProgressAware
         });
     }
 
-    private function rceFinding(Target $target, Profile $profile, PocResult $result): Finding
+    private function rceFinding(Target $target, Profile $profile, PocResult $result, ?string $warning = null): Finding
     {
+        $evidence = sprintf(
+            'Profile %s; the unique proof marker "%s" was fetched from %s.',
+            $profile->id(),
+            (string) $result->proof,
+            $result->proofPath ?? 'the proof path',
+        );
+
+        if ($result->evidence !== null && $result->evidence !== '') {
+            $evidence .= ' Evidence: ' . $result->evidence . '.';
+        }
+
+        if ($warning !== null) {
+            $evidence .= ' Note: ' . $warning . '.';
+        }
+
         return new Finding(
             id: 'php2shell-rce',
             title: 'PHP2Shell - RCE confirmed',
             severity: Severity::Critical,
             target: $target->label(),
-            evidence: sprintf(
-                'Profile %s; the unique proof marker "%s" was fetched from %s.',
-                $profile->id(),
-                (string) $result->proof,
-                $result->proofPath ?? 'the proof path',
-            ),
+            evidence: $evidence,
             exploit: 'The target executed a unique command; this is confirmed remote code execution.',
             reproduce: $this->reproduce->steps('php2shell-rce', $target->url, $target->label()),
         );

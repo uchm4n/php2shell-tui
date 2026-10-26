@@ -12,7 +12,7 @@ targets:
 checks:
   php_presence: true
   php_version: true
-  php2shell: true                     # active check; inert unless --verify + poc.guess/poc_profile
+  php2shell: true                     # detection always; real chain only with --verify + a calibrated profile
   sensitive_files: true
   security_headers: true
   tls: true

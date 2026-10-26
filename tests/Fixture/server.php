@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Fixture server used by the integration tests.
  *
  * Routes:
- *   /            → 200 JSON, sets X-Powered-By: PHP/8.1.29 and Server: Apache/2.4.58 (Unix) PHP/8.1.29
+ *   /            → 200 JSON, sets X-Powered-By: PHP/8.4.26 and Server: Apache/2.4.58 (Unix) PHP/8.4.26
  *   /headers     → 200 with no security headers at all
  *   /secure      → 200 with a full set of security headers
  *   /.env        → 200 with a fake .env body
@@ -17,8 +17,15 @@ declare(strict_types=1);
  */
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    $log = getenv('P2S_FIXTURE_POST_LOG');
+    if (is_string($log) && $log !== '') {
+        file_put_contents($log, ($_SERVER['REQUEST_URI'] ?? '') . "\n", FILE_APPEND);
+    }
+}
+
 header_remove('X-Powered-By');
-header('Server: Apache/2.4.58 (Unix) PHP/8.1.29');
+header('Server: Apache/2.4.58 (Unix) PHP/8.4.26');
 
 switch ($path) {
     case '/headers':
@@ -82,7 +89,7 @@ switch ($path) {
 
     default:
         http_response_code(200);
-        header('X-Powered-By: PHP/8.1.29');
+        header('X-Powered-By: PHP/8.4.26');
         header('Content-Type: application/json');
         echo json_encode(['ok' => true]);
         break;

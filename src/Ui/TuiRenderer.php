@@ -166,7 +166,7 @@ final class TuiRenderer
     }
 
     /**
-     * Shows the active build guess without resetting the request gauge.
+     * Shows the active verification attempt without resetting the request gauge.
      */
     public function setVerify(string $targetLabel, int $done, int $total): void
     {

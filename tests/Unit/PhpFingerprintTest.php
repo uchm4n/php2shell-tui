@@ -67,6 +67,16 @@ final class PhpFingerprintTest extends TestCase
         self::assertTrue($fingerprint->hasPhpSignal());
     }
 
+    public function testItInfersModPhpFromApacheHeaders(): void
+    {
+        $responses = ['/' => new Response(200, [
+            'Server' => 'Apache/2.4.69 (Debian)',
+            'X-Powered-By' => 'PHP/8.4.26',
+        ], 'OK')];
+
+        self::assertSame('inferred: mod_php', PhpFingerprint::fromResponses($responses)->sapi());
+    }
+
     public function testItFindsAVersionInTheBaselineBody(): void
     {
         $responses = ['/' => new Response(200, [], '<p>PHP Version 7.4.33</p>')];

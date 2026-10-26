@@ -205,13 +205,13 @@ final class ConfigTest extends TestCase
             'targets' => [[
                 'url' => 'https://app.example/',
                 'post_path' => '/index.php',
-                'poc_profile' => 'php-8.4.26-apache-amd64',
+                'poc_profile' => 'php-8.4.26-bookworm-amd64',
             ]],
         ]);
 
         $target = $config->targets[0];
         self::assertSame('/index.php', $target->postPath);
-        self::assertSame('php-8.4.26-apache-amd64', $target->pocProfile);
+        self::assertSame('php-8.4.26-bookworm-amd64', $target->pocProfile);
     }
 
     public function testItRejectsACrossOriginPostPath(): void

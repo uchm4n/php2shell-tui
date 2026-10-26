@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Php2ShellTui\Tests\Unit;
 
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Response;
+use Php2ShellTui\Http\Client;
 use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Poc\PocPlan;
 use Php2ShellTui\Poc\Profile;
@@ -90,5 +95,30 @@ final class Php2ShellPocTest extends TestCase
 
         self::assertFalse($result->confirmed);
         self::assertStringContainsString('proof client', $result->reason);
+    }
+
+    public function testAProofRequires200AndTheExactMarker(): void
+    {
+        self::assertTrue(Php2ShellPoc::proofMatches(new Response(200, [], " ABCDEFG \n"), 'ABCDEFG'));
+        self::assertFalse(Php2ShellPoc::proofMatches(new Response(200, [], 'WRONG'), 'ABCDEFG'));
+        self::assertFalse(Php2ShellPoc::proofMatches(new Response(404, [], 'ABCDEFG'), 'ABCDEFG'));
+    }
+
+    public function testItRefusesACatchAllProofPathBeforeSending(): void
+    {
+        $handler = new MockHandler(array_fill(0, 30, new Response(200, [], 'OK')));
+        $client = new Client(new GuzzleClient([
+            'handler' => HandlerStack::create($handler),
+            'http_errors' => false,
+        ]));
+
+        $result = (new Php2ShellPoc(client: $client))->run(
+            new Target('http://127.0.0.1:1/', postPath: '/index.php'),
+            $this->profile(),
+            new PocPlan(workers: 1, memoryLimitMb: 8),
+        );
+
+        self::assertFalse($result->confirmed);
+        self::assertStringContainsString('proof paths are not free', $result->reason);
     }
 }

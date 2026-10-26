@@ -109,7 +109,7 @@ final class PhpFingerprint
 - `paths()` returns `['/', '/phpinfo.php', '/info.php']`.
 - Version sources: `X-Powered-By` (high), `Server` (medium), phpinfo `PHP Version` (medium), body `PHP Version x.y.z` / `PHP/x.y.z` (low).
 - phpinfo parsing: rows of `<td class="e">name</td><td class="v">value</td>`; strip tags, HTML-decode, lowercase the name, trim the value. Also parse `PHP Version` into `php version`.
-- SAPI: exact phpinfo `Server API`, else infer `mod_php` from Apache + PHP headers, `fpm` from nginx + PHP headers. Inferred values are labelled.
+- SAPI: exact phpinfo `Server API`, else infer `mod_php` from Apache + PHP headers, `fpm` from nginx + PHP headers. Inferred values are labelled. An inferred `mod_php` is reported as unknown, not as proof of mod_php: Apache can front FPM with the same headers.
 - `serverOs()` normalizes the `Server` header OS token; `hasPhpSignal()` uses the existing `PhpDetection::signals()` on the baseline.
 - The response body is rewound before and after reading.
 
@@ -196,7 +196,7 @@ The chain needs a finite `memory_limit` and an OOM field larger than it.
 - If the probe fails, use `profile.oom_mb` (12) and warn; the attempt may fail, and no false positive is possible.
 - `huge_mb = (limit == 8 && profile.oom_mb > 0) ? profile.oom_mb : limit + profile.oom_margin_mb` (default margin 12).
 - Gate: if `memory_limit` is `-1`, do not attempt (no OOM).
-- Gate: if `post_max_size` is known and `0 < post_max_size < huge_mb`, do not attempt.
+- Gate: if `post_max_size` is known and `0 < post_max_size <= huge_mb`, do not attempt. The same `huge_mb` helper is used by the exposure finding and the gate; a missing or unreadable `memory_limit` is unknown, not closed.
 - `upload_max_filesize` is reported but is not a gate: the large value is a plain form field, not a file.
 
 #### 4.2.5 Target gates
@@ -302,6 +302,8 @@ final class ProfileCatalog
 - Exact version match only. A branch input (`8.5`) is rejected with "specify an exact patch release" and the available versions.
 - If the exact version has multiple arches, `--arch` is required.
 - `--profile`/`poc_profile` is an explicit id or path and bypasses auto-selection, but the profile must still be verified/rce and must match the detected version and OS when those are known.
+- Auto-selection uses only trusted version sources (`X-Powered-By`, phpinfo, `Server`); the low-confidence body version is never sufficient to fire the chain. If trusted sources disagree, verification is refused until the operator resolves the conflict with an unambiguous target, `--php-version`, or an explicit profile.
+- `--php-version` is an override for a target with no trusted version, not a way to override a contradictory advertised version. A trusted version that differs from the override is refused.
 - `Server` OS matching: `Debian`/`bookworm` → `debian`; `Ubuntu` → `ubuntu`; `Alpine` → `alpine`. A known mismatch refuses.
 - Unverified profiles are never selected, even by an explicit path.
 
@@ -471,7 +473,8 @@ src/Data/poc/php-8.5.11-...json (replaced)
 
 - Five builds: 8.4.25 aarch64, 8.4.26 amd64, 8.5.10 aarch64, 8.5.11 aarch64, 8.5.11 amd64.
 - Official `php:<version>-apache` images; `display_errors=On`, `memory_limit=8M` (and 128M for 8.4.26), `post_max_size=64M` for the 8M tests and `256M` for the 128M test, `upload_max_filesize=64M`, `session.upload_progress.enabled=On`, `session.use_strict_mode=0`, `session.use_cookies=1`; single-worker for the match test and 2/4-worker pinning for the pin test.
-- Negative: patched 8.4.27/8.5.12; FPM; `display_errors=Off`; `post_max_size=8M`; hidden version with `--php-version`; 7.4.33 fail-fast; pre-existing proof file; wrong marker.
+- Negative: patched 8.4.27/8.5.12; observed FPM; `display_errors=Off`; `post_max_size=8M`; 7.4.33 fail-fast; contradictory `--php-version`; pre-existing proof file; wrong marker.
+- Hidden version: keep the calibrated build (`expose_php=On`) and strip `X-Powered-By` at the edge; the target has no version in headers, body, or phpinfo, and `--verify --php-version 8.4.26 --arch amd64` proves RCE. A genuinely `expose_php=Off` build changes the heap calibration and may not produce a retrievable proof; that limitation is reported, not hidden.
 - Default scan on every lab: exposure finding, zero POSTs (access log), no RCE finding.
 - `--verify` on each of the five: real marker, one profile, Critical.
 - Built PHAR, not just source.
@@ -506,7 +509,8 @@ src/Data/poc/php-8.5.11-...json (replaced)
 ## 7. Risks and limitations
 
 - **Proof path depends on CWD.** The command writes a relative file; if the PHP working directory is not the script directory or webroot, RCE may succeed but the proof is not retrievable. Reported as Info "proof not retrievable", never Critical.
-- **Target configuration.** The parametric chain needs `display_errors=On`, finite `memory_limit`, `post_max_size > memory_limit + 12`, `session.upload_progress=On`, `use_strict_mode=0`, and a prefork worker count the operator knows. These are gates/checks, not assumptions.
+- **Target configuration.** The parametric chain needs `display_errors=On`, finite `memory_limit`, `post_max_size` above the OOM field size (`oom_mb` at 8M, otherwise `memory_limit + 12`), `session.upload_progress=On`, `use_strict_mode=0`, and a prefork worker count the operator knows. These are gates/checks, not assumptions.
+- **Hidden versions.** `expose_php=Off` changes the calibrated heap layout; the chain can run and still fail to produce a retrievable proof. Stripping `X-Powered-By` at the edge keeps the build match and lets the override prove RCE. A trusted version that contradicts the override is refused.
 - **Intrusiveness.** Worker rotation, half-open pinning and 12 MB bodies can disrupt the target. `--verify` is explicit and the README must say so.
 - **Build matching.** Version + arch + Server OS is not a binary fingerprint. A same-version different build may fail; the marker prevents false positives but still costs an attempt. A wrong build can crash a worker.
 - **HTTPS.** The transport supports verified TLS, but the lab matrix is HTTP; HTTPS is not lab-verified. The proof marker still prevents false positives.
