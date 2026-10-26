@@ -97,6 +97,8 @@ final class PhpFingerprint
     public function phpinfo(): ?array;
 
     public function sapi(): ?string;          // exact or "inferred: mod_php" / "inferred: fpm"
+    public function serverOs(): ?string;      // debian, ubuntu, alpine, ... from the Server header
+    public function hasPhpSignal(): bool;
     /** @return array<string, string> */
     public function ini(): array;
     /** @return list<string> */
@@ -108,6 +110,7 @@ final class PhpFingerprint
 - Version sources: `X-Powered-By` (high), `Server` (medium), phpinfo `PHP Version` (medium), body `PHP Version x.y.z` / `PHP/x.y.z` (low).
 - phpinfo parsing: rows of `<td class="e">name</td><td class="v">value</td>`; strip tags, HTML-decode, lowercase the name, trim the value. Also parse `PHP Version` into `php version`.
 - SAPI: exact phpinfo `Server API`, else infer `mod_php` from Apache + PHP headers, `fpm` from nginx + PHP headers. Inferred values are labelled.
+- `serverOs()` normalizes the `Server` header OS token; `hasPhpSignal()` uses the existing `PhpDetection::signals()` on the baseline.
 - The response body is rewound before and after reading.
 
 `PhpVersion` uses `PhpFingerprint::versions()` and keeps its existing worst-version logic. It additionally scans the baseline body, so a page that calls `phpinfo()` or leaks its version in HTML is detected without extra requests.
