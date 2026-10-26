@@ -31,6 +31,10 @@ final class Client
      */
     public function getAsync(string $url, array $headers = [], int $delayMs = 0): PromiseInterface
     {
+        // A detection request must not leave an idle keep-alive connection on
+        // a prefork worker: the verification chain needs a free child.
+        $headers['Connection'] = 'close';
+
         // Holds the redirect response that was not followed, if any.
         $blocked = null;
 
@@ -60,9 +64,7 @@ final class Client
             ],
         ];
 
-        if ($headers !== []) {
-            $options['headers'] = $headers;
-        }
+        $options['headers'] = $headers;
 
         $delay = max($this->delayMs, $delayMs);
         if ($delay > 0) {
@@ -89,6 +91,7 @@ final class Client
         // Suppress 100-continue: the probe should not wait for an interim
         // response from a server that may not speak it correctly.
         $headers['Expect'] = '';
+        $headers['Connection'] = 'close';
 
         $options = [
             'http_errors' => false,

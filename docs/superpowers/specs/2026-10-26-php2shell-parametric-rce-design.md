@@ -447,6 +447,9 @@ src/Data/poc/php-8.5.11-...json (replaced)
 - `--verify` is gated before any payload; patched, FPM, no-profile and closed-precondition targets cost zero payload.
 - The parametric chain is inherently heavy (12 MB preludes, worker rotation). It is an exploit, not a scan. `retries` and `timeout` are configurable; the default is one profile, not a list.
 - The old 14-profile loop, `max_attempts`, `total_timeout`, `GuessPlan` and the 13 fake profiles are removed.
+- Detection requests are sent with `Connection: close`. A keep-alive GET would hold a prefork child and, on a two-worker target, leave the verification chain queued behind the scanner itself. The lab found this on the 2-worker test.
+- The profile catalog lists its directory with `scandir()`, not `glob()`, so the same five profiles load from the built PHAR (`glob()` does not read `phar://`).
+- SAPI matching accepts the real phpinfo value `Apache 2 Handler` as well as `Apache 2.0 Handler` and `apache2handler`; the lab found the apostrophe-free form on PHP 8.4/8.5.
 
 ### 4.8 Testing
 

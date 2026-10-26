@@ -24,12 +24,20 @@ final class ProfileCatalog
             return $this->profiles;
         }
 
-        $files = glob(rtrim($this->directory, '/') . '/*.json') ?: [];
-        sort($files);
+        $directory = rtrim($this->directory, '/');
+        $entries = @scandir($directory);
+        if ($entries === false) {
+            throw new \RuntimeException(sprintf('Cannot list the profile directory "%s".', $directory));
+        }
 
+        sort($entries);
         $profiles = [];
-        foreach ($files as $file) {
-            $profiles[] = Profile::fromFile($file);
+        foreach ($entries as $entry) {
+            if (!str_ends_with($entry, '.json')) {
+                continue;
+            }
+
+            $profiles[] = Profile::fromFile($directory . '/' . $entry);
         }
 
         return $this->profiles = $profiles;

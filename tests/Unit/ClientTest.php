@@ -22,6 +22,36 @@ final class ClientTest extends TestCase
         ]), $delayMs);
     }
 
+    public function testGetClosesTheConnectionSoItDoesNotHoldAPreforkWorker(): void
+    {
+        $seen = null;
+        $client = $this->client(function (RequestInterface $request) use (&$seen): PromiseInterface {
+            $seen = $request;
+
+            return Create::promiseFor(new Response(200, [], 'ok'));
+        });
+
+        $client->get('https://example.com/');
+
+        self::assertNotNull($seen);
+        self::assertSame('close', $seen->getHeaderLine('Connection'));
+    }
+
+    public function testPostClosesTheConnectionSoItDoesNotHoldAPreforkWorker(): void
+    {
+        $seen = null;
+        $client = $this->client(function (RequestInterface $request) use (&$seen): PromiseInterface {
+            $seen = $request;
+
+            return Create::promiseFor(new Response(200, [], 'ok'));
+        });
+
+        $client->post('https://example.com/', [], ['a' => 'b']);
+
+        self::assertNotNull($seen);
+        self::assertSame('close', $seen->getHeaderLine('Connection'));
+    }
+
     public function testPostUrlEncodedSendsFormParamsAndHeaders(): void
     {
         $seen = null;

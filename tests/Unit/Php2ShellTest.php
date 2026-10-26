@@ -197,6 +197,21 @@ final class Php2ShellTest extends TestCase
         self::assertStringContainsString('https://app.example/p', $rce->evidence);
     }
 
+    public function testARealModPhpSapiIsRecognised(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['sapi' => 'Apache 2 Handler']),
+        );
+
+        self::assertCount(1, $calls);
+        self::assertSame(
+            1,
+            count(array_filter($findings, static fn (Finding $f): bool => $f->id === 'php2shell-rce')),
+        );
+    }
+
     public function testItSendsNoPayloadForAKnownFpmTarget(): void
     {
         $calls = [];

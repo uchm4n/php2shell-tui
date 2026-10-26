@@ -369,7 +369,11 @@ final class Php2Shell implements Check, ProgressAware
             return 'closed';
         }
 
-        return str_contains($lower, 'apache 2.0 handler') || str_contains($lower, 'mod_php')
+        if (str_contains($lower, 'mod_php') || str_contains($lower, 'apache2handler')) {
+            return 'met';
+        }
+
+        return str_contains($lower, 'apache') && str_contains($lower, 'handler')
             ? 'met'
             : 'closed';
     }
