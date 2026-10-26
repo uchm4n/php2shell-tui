@@ -1,5 +1,4 @@
-# Run only against an authorized target with a verified profile or explicit poc.guess.
-bin/php2shell-tui scan --config <authorized-target>.yaml --no-tui --format json --verify
+# Run only against an authorized target with a calibrated profile.
+bin/php2shell-tui scan --config <authorized-target>.yaml --no-tui --format json --verify --php-version <x.y.z> --arch <amd64|aarch64> --workers <target-maxrequestworkers>
 
-# The proof writes a short relative file and fetches the candidate paths.
-# If it succeeds, remove that proof file from the target working directory.
+# The chain writes a one-character proof file. Remove it from the target working directory after the proof is fetched.

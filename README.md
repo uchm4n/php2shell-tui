@@ -7,11 +7,11 @@ reproduce steps.
 It only contacts the hosts listed in your config — no discovery, no host argument, no brute force.
 Use it only on hosts you own or are authorized to test.
 
-**Note:** By default it checks the **PHP2Shell** exposure condition. With `--verify` and an
-explicit `poc_profile` or `poc.guess: true`, it attempts the real PHP2Shell chain against the
-target on the first run: no test endpoint, no preflight POST. Only the amd64 PHP 8.4.26 mod_php
-build is verified; the other shipped profiles are ordered guesses. HTTPS is attempted with
-verified TLS but is experimental; FPM is not supported.
+**Note:** The default scan is detection-only: version, phpinfo/SAPI and the chain preconditions,
+with no POST. With `--verify` it runs the real parametric PHP2Shell chain only when the target
+matches one of the five calibrated build profiles. A failed attempt is reported as "proof not
+obtained", never as safe. There is no canary and no arming probe. HTTPS uses verified TLS but is
+not lab-verified; FPM is refused because the calibrated chain is mod_php only.
 
 <img src="./screenshot.png" alt="php2shell-tui" width="600">
 
@@ -46,6 +46,7 @@ targets:
     paths: ["/wp-content/uploads"]   # extra directories to check for webshells
 
   # Optional real-server check. No POST is sent without --verify.
+  # post_path selects the chain endpoint and the proof candidates.
   - url: https://app.example.com/
     post_path: /index.php
 
@@ -62,16 +63,13 @@ checks:
   injection: false                   # also needs --verify
 
 poc:
-  guess: true                        # try the ordered list; also needs --verify
-  arch: any                          # any | amd64 | aarch64
-  workers: 150                       # prefork workers to pin; set to the target's actual count
-  max_attempts: 5
-  total_timeout: 300
-  profiles:
-    - php-8.4.26-apache-bookworm-amd64   # verified in the lab
-    - php-8.5.11-apache-bookworm-amd64   # public offsets, not verified here
-    - php-8.5.11-apache-bookworm-aarch64
-    # ... see php2shell-tui.yaml for the full ordered list
+  workers: 150                       # target prefork MaxRequestWorkers; 1 for a single-worker lab
+  # memory_limit: 128                # optional MiB; omit to use phpinfo or the OOM probe
+  timeout: 300                       # overall seconds for one verification
+  request_timeout: 90                # per raw request
+  retries: 3                         # stage1/stage2; stage3 uses retries + 2
+  max_workers: 200                   # refuse a config above this pin count
+  # profile: php-8.4.26-bookworm-amd64 # optional exact override
 
 options:
   concurrency: 8
@@ -102,19 +100,25 @@ whole scan (`j`/`k` or arrows move, `Enter` expands a finding). The report is st
 
 Exit codes: `0` clean, `1` findings at or above `min_severity`, `2` error, `130` cancelled from the TUI.
 
-When `--verify` is set, the active check has two modes:
+When `--verify` is set, the scanner selects exactly one calibrated build:
 
-- `poc_profile: <id>` runs that one profile.
-- `poc.guess: true` tries `poc.profiles` in order, up to `poc.max_attempts`, and stops early on a
-  marker, a fatal error, or a target that stops responding.
+- **auto:** the exact `x.y.z` advertised by the target, or `--php-version x.y.z` when the version
+  is hidden; `--arch` is required when a version has both amd64 and aarch64 profiles.
+- **explicit:** `--profile <id|path>` or a target `poc_profile`.
 
-Each attempt pins `workers - 1` prefork connections, sends the real PHP2Shell chain, writes a short
-relative proof file, and fetches both `<post_path directory>/<file>` and `/<file>`. The scanner
-emits **Critical** only when the exact unique marker is returned. A failed guess is reported as
-“proof not obtained,” never as “safe.”
+`--workers` (or `poc.workers`) is the target's prefork `MaxRequestWorkers`; use `1` for a
+single-worker lab. It is required: the scanner will not pin an unknown worker pool.
 
-While the proof runs, the TUI shows `◐ verify 2/5 · 23s` and the title says `verifying 2/5`. Press
-`r` at any time to abort the current run and start a fresh scan.
+Each attempt pins `workers - 1` connections, runs the real parametric chain (rotate, stage 1 heap
+leak, stage 2 libphp leak, stage 3 fake HashTable), writes a one-character proof file, and fetches
+both `<post_path directory>/<file>` and `/<file>`. **Critical** is emitted only when the exact
+unique marker is returned. A failed attempt is “proof not obtained,” never “safe.”
+
+Before a payload is sent, the scanner requires: the exact version+arch profile, mod_php,
+`session.upload_progress.enabled=On`, `display_errors=On`, `session.use_strict_mode=0`, a finite
+`memory_limit`, and `post_max_size` above `memory_limit + 12`. Known failures send zero payload.
+The chain is intrusive — worker rotation, half-open pinning, 12 MB+ bodies — so run it only with
+authorization. The TUI shows `verify 1/1`; press `r` to abort and restart.
 
 **Known limitation**: a baseline response of `403`, `407`, `429`, or `503` marks the target unscannable
 and skips every check, including the active proof. Use a baseline path the scanner can reach, or
@@ -127,42 +131,59 @@ stay off until `--verify`:
 bin/php2shell-tui scan --verify          # --verify is the explicit authorization
 ```
 
-Rails: the full chain pins `workers - 1` connections plus four chain requests. Hosts outside the
-target are never contacted, pages that differ between two identical fetches are skipped, and
-findings ship reproduce steps rather than a destructive payload.
+Rails: the full chain pins `workers - 1` connections plus the parametric chain requests. Hosts
+outside the target are never contacted, pages that differ between two identical fetches are
+skipped, and findings ship reproduce steps rather than a destructive payload.
 
 ## What it looks for
 
 - PHP versions below the PHP2Shell fix (8.2.35 / 8.3.36 / 8.4.27 / 8.5.12), including EOL branches
   and release candidates
+- A consolidated exploitability finding from phpinfo: SAPI, `session.upload_progress`,
+  `display_errors`, `session.use_strict_mode`, `memory_limit`, `post_max_size`, and the matching
+  calibrated profile
 - Exposed secrets and debug files: `.env`, backups, `phpinfo`, database consoles
 - Missing or weak security headers (CSP, HSTS, frame and content-type protections)
 - TLS certificates that are expired, expiring soon, or issued for another hostname
 - Webshell indicators in common upload paths
 - Publicly reachable high-risk ports
-- With `--verify` and a matching `poc_profile` or `poc.guess`: a real, first-run RCE proof
+- With `--verify` and a matching calibrated build: a real, unique-marker RCE proof
 - With `--verify` and `injection: true`: SQL injection, reflected XSS, local file inclusion
 
-## Profiles and guess mode
+## Calibrated verification
 
-Only `php-8.4.26-apache-bookworm-amd64` is verified in this engine, for the official amd64
-`php:8.4.26-apache` build. Use `poc_profile` only after confirming the target matches that exact
-build.
+Five exact builds have public RCE calibration. Everything else is detection-only.
 
-The shipped `poc.profiles` list also includes 13 builds with public libphp offsets from the
-`devploit/php2shell` offset inventory (MIT). They are marked `rce_verified: false` and use the
-8.4.26 stage baseline; they are guesses, not verified profiles. Most are aarch64, so amd64
-coverage beyond 8.4.26 is currently limited to 8.5.11. There are no public offsets for 5.4–7.3.
+| PHP | architecture | profile id |
+|---|---|---|
+| 8.4.25 | aarch64 | `php-8.4.25-bookworm-aarch64` |
+| 8.4.26 | amd64 | `php-8.4.26-bookworm-amd64` |
+| 8.5.10 | aarch64 | `php-8.5.10-bookworm-aarch64` |
+| 8.5.11 | aarch64 | `php-8.5.11-bookworm-aarch64` |
+| 8.5.11 | amd64 | `php-8.5.11-bookworm-amd64` |
 
-The proof writes a short relative file in the PHP working directory and fetches both the script
+A version is not a build: the offsets and heap calibration are per build. The scanner refuses a
+branch (`8.5`), a version without a profile, an unknown architecture, or an unverified profile.
+PHP 7.4–8.3 are reported as affected but have no calibrated RCE profile.
+
+The proof writes a one-character file in the PHP working directory and fetches both the script
 directory and webroot candidates. If neither returns the marker, the finding says “proof not
 retrievable”; it never claims success without the marker.
 
-HTTPS is attempted with verified TLS, but the verified transport is HTTP; treat HTTPS as
-experimental. FPM is refused because the verified chain is mod_php only.
+HTTPS uses verified TLS but is not lab-verified; treat it as experimental. FPM is refused because
+the calibrated chain is mod_php only.
 
 ```sh
-bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify
+# detection only, no POST
+bin/php2shell-tui scan --config target.yaml --no-tui --format json
+
+# real chain: exact build, target MaxRequestWorkers
+bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify \
+  --php-version 8.4.26 --arch amd64 --workers 150
+
+# hidden version, operator-known build
+bin/php2shell-tui scan --config target.yaml --no-tui --format json --verify \
+  --profile php-8.5.11-bookworm-aarch64 --workers 150 --memory-limit 128
 ```
 
 ## Development
@@ -173,8 +194,10 @@ Build the PHAR with `composer build`, then run `./php2shell-tui`.
 composer test
 ```
 
-The suite starts a local fixture server; nothing external is contacted. Contributions: branch,
-keep the suite green, open a pull request.
+The suite starts a local fixture server; nothing external is contacted. The release gate runs the
+five builds in a disposable Docker matrix (positive proofs, patched/FPM/hidden-version negatives,
+2/4-worker pinning) and the built PHAR; no lab files or Docker data are committed. Contributions:
+branch, keep the suite green, open a pull request.
 
 ## License
 MIT
