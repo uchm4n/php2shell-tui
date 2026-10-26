@@ -34,14 +34,6 @@ final class PocResultTest extends TestCase
         self::assertFalse($result->confirmed);
         self::assertNull($result->proof);
         self::assertNull($result->evidence);
-        self::assertFalse($result->terminal);
-    }
-
-    public function testAnUnconfirmedResultCanStopFurtherAttempts(): void
-    {
-        $result = new PocResult(false, 'worker pinning failed', terminal: true);
-
-        self::assertTrue($result->terminal);
     }
 
     public function testAConfirmedResultRequiresProof(): void

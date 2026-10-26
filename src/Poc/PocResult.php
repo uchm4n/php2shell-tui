@@ -12,7 +12,6 @@ final class PocResult
         public readonly ?string $proof = null,
         public readonly ?string $evidence = null,
         public readonly ?string $proofPath = null,
-        public readonly bool $terminal = false,
     ) {
         if (trim($reason) === '') {
             throw new \InvalidArgumentException('A PoC result must carry a reason.');
