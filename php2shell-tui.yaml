@@ -22,29 +22,13 @@ checks:
   injection: false                    # requires --verify as well
 
 poc:
-  guess: true                         # try the ordered list; still requires --verify
-  arch: any                           # any | amd64 | aarch64
-  workers: 150                        # prefork workers to pin; set to the target's actual count
-  max_attempts: 2                     # stop after this many profiles; raise to cover the whole list
-  total_timeout: 100                  # seconds across all attempts
-  timeout: 10                         # seconds per attempt
-  max_workers: 150                    # refuse a profile above this pin count
-  profiles:
-    - php-8.4.26-apache-bookworm-amd64
-    - php-8.5.11-apache-bookworm-amd64
-    - php-8.5.11-apache-bookworm-aarch64
-    - php-8.5.10-apache-bookworm-aarch64
-    - php-8.5.0-apache-bookworm-aarch64
-    - php-8.4.25-apache-bookworm-aarch64
-    - php-8.3.35-apache-bookworm-aarch64
-    - php-8.3.33-wordpress-mod_php
-    - php-8.3.0-apache-bookworm-aarch64
-    - php-8.2.34-apache-bookworm-aarch64
-    - php-8.2.0-apache-bookworm-aarch64
-    - php-8.1.34-apache-bookworm-aarch64
-    - php-8.0.30-apache-bookworm-aarch64
-    - php-7.4.33-apache-bookworm-aarch64
-    # No public profiles for 5.4–7.3; 7.4.33 is the oldest available.
+  workers: 150                        # target prefork MaxRequestWorkers; 1 for a single-worker lab
+  # memory_limit: 128                 # optional MiB; omit to use phpinfo or the OOM probe
+  timeout: 300                        # overall seconds for one verification
+  request_timeout: 90                 # per raw request
+  retries: 3                          # stage1/stage2; stage3 uses retries + 2
+  max_workers: 200                    # refuse a config above this pin count
+  # profile: php-8.4.26-bookworm-amd64 # optional exact override
 
 options:
   concurrency: 8

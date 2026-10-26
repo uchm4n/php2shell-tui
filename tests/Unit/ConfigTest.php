@@ -78,14 +78,13 @@ final class ConfigTest extends TestCase
         self::assertSame(Severity::Medium, $config->minSeverity);
         self::assertSame('tui', $config->format);
         self::assertSame('./reports', $config->reportDir);
-        self::assertSame(180, $config->pocTimeout);
-        self::assertSame(150, $config->pocMaxWorkers);
-        self::assertFalse($config->pocGuess);
-        self::assertSame([], $config->pocProfiles);
-        self::assertNull($config->pocArch);
+        self::assertSame(300, $config->pocTimeout);
+        self::assertSame(200, $config->pocMaxWorkers);
         self::assertNull($config->pocWorkers);
-        self::assertSame(5, $config->pocMaxAttempts);
-        self::assertSame(300, $config->pocTotalTimeout);
+        self::assertNull($config->pocMemoryLimit);
+        self::assertSame(90, $config->pocRequestTimeout);
+        self::assertSame(3, $config->pocRetries);
+        self::assertNull($config->pocProfile);
     }
 
     public function testItParsesPocOptions(): void
@@ -99,52 +98,39 @@ final class ConfigTest extends TestCase
         self::assertSame(50, $config->pocMaxWorkers);
     }
 
-    public function testItParsesThePocGuessPlan(): void
+    public function testItParsesTheCalibratedPocPlanFields(): void
     {
         $config = Config::fromArray([
             'targets' => ['https://example.com'],
             'poc' => [
-                'guess' => true,
-                'arch' => 'x86_64',
-                'workers' => 8,
-                'max_attempts' => 3,
-                'total_timeout' => 90,
-                'timeout' => 42,
-                'max_workers' => 10,
-                'profiles' => ['first-profile', 'second-profile', 'first-profile'],
+                'workers' => 150,
+                'memory_limit' => 128,
+                'timeout' => 300,
+                'request_timeout' => 90,
+                'retries' => 3,
+                'max_workers' => 200,
+                'profile' => 'php-8.4.26-bookworm-amd64',
             ],
         ]);
 
-        self::assertTrue($config->pocGuess);
-        self::assertSame(['first-profile', 'second-profile'], $config->pocProfiles);
-        self::assertSame('amd64', $config->pocArch);
-        self::assertSame(8, $config->pocWorkers);
-        self::assertSame(3, $config->pocMaxAttempts);
-        self::assertSame(90, $config->pocTotalTimeout);
-        self::assertSame(42, $config->pocTimeout);
-        self::assertSame(10, $config->pocMaxWorkers);
+        self::assertSame(150, $config->pocWorkers);
+        self::assertSame(128, $config->pocMemoryLimit);
+        self::assertSame(300, $config->pocTimeout);
+        self::assertSame(90, $config->pocRequestTimeout);
+        self::assertSame(3, $config->pocRetries);
+        self::assertSame(200, $config->pocMaxWorkers);
+        self::assertSame('php-8.4.26-bookworm-amd64', $config->pocProfile);
     }
 
-    public function testPocGuessRequiresProfiles(): void
+    public function testItIgnoresTheRemovedGuessKeys(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('poc.profiles');
-
-        Config::fromArray([
+        $config = Config::fromArray([
             'targets' => ['https://example.com'],
-            'poc' => ['guess' => true],
+            'poc' => ['guess' => true, 'profiles' => ['old-profile']],
         ]);
-    }
 
-    public function testItRejectsAnUnknownPocArchitecture(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('poc.arch');
-
-        Config::fromArray([
-            'targets' => ['https://example.com'],
-            'poc' => ['arch' => 'sparc'],
-        ]);
+        self::assertNull($config->pocWorkers);
+        self::assertNull($config->pocProfile);
     }
 
     public function testItRejectsPocWorkersAboveTheCap(): void
@@ -155,17 +141,6 @@ final class ConfigTest extends TestCase
         Config::fromArray([
             'targets' => ['https://example.com'],
             'poc' => ['workers' => 20, 'max_workers' => 10],
-        ]);
-    }
-
-    public function testItRejectsANonBooleanPocGuess(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('poc.guess');
-
-        Config::fromArray([
-            'targets' => ['https://example.com'],
-            'poc' => ['guess' => 'false'],
         ]);
     }
 
@@ -332,12 +307,11 @@ final class ConfigTest extends TestCase
 
         self::assertNotEmpty($config->targets);
         self::assertTrue($config->checkEnabled('php2shell'));
-        self::assertTrue($config->pocGuess);
-        self::assertNotEmpty($config->pocProfiles);
-
-        foreach ($config->pocProfiles as $id) {
-            self::assertFileExists($root . '/src/Data/poc/' . $id . '.json', $id);
-        }
+        self::assertSame(150, $config->pocWorkers);
+        self::assertSame(300, $config->pocTimeout);
+        self::assertSame(90, $config->pocRequestTimeout);
+        self::assertSame(3, $config->pocRetries);
+        self::assertNull($config->pocProfile);
     }
 
     public function testItRejectsAMissingConfigFile(): void

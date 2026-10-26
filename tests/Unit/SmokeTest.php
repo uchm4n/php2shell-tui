@@ -28,7 +28,5 @@ final class SmokeTest extends TestCase
 
         self::assertIsArray($config);
         self::assertNotEmpty($config['targets']);
-        self::assertTrue($config['poc']['guess']);
-        self::assertNotEmpty($config['poc']['profiles']);
     }
 }

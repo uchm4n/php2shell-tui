@@ -8,19 +8,31 @@ final class Profile
 {
     /**
      * @param array<string, mixed> $data
-     * @param array<string, mixed> $offsets
-     * @param array<string, mixed> $stages
+     * @param array{zif_system: int, zval_ptr_dtor: int, htdata: int} $libphp
+     * @param list<array{0: int, 1: int}> $stage3Pads
+     * @param list<int> $memoryLimitTestedMb
      */
     private function __construct(
         private readonly array $data,
         private readonly string $id,
         private readonly string $phpVersion,
+        private readonly string $branch,
+        private readonly ?string $fixedIn,
         private readonly string $sapi,
         private readonly string $arch,
-        private readonly int $workers,
+        private readonly ?string $distro,
         private readonly bool $rceVerified,
-        private readonly array $offsets,
-        private readonly array $stages,
+        private readonly array $libphp,
+        private readonly int $stage1N,
+        private readonly int $stage1ForgeLen,
+        private readonly int $stage2T,
+        private readonly int $stage2V,
+        private readonly array $stage3Pads,
+        private readonly bool $stage3Carrier,
+        private readonly int $oomMb,
+        private readonly int $oomMarginMb,
+        private readonly array $memoryLimitTestedMb,
+        private readonly string $upstreamProfile,
     ) {
     }
 
@@ -53,59 +65,80 @@ final class Profile
      */
     public static function fromArray(array $data): self
     {
-        $id = self::requiredString($data, 'id');
-        $phpVersion = self::requiredString($data, 'php_version');
-        $sapi = self::requiredString($data, 'sapi');
-        $arch = self::normalizeArch(self::requiredString($data, 'arch'));
-        $workers = $data['workers'] ?? null;
-
-        if (!is_int($workers) || $workers < 1) {
-            throw new \InvalidArgumentException('Profile field "workers" must be a positive integer.');
+        $id = self::stringValue($data, 'name', false);
+        if ($id === null || $id === '') {
+            $id = self::stringValue($data, 'id', false);
         }
 
-        $rceVerified = self::optionalBool($data, 'rce_verified');
-        $offsets = self::optionalArray($data, 'offsets');
-        $stages = self::optionalArray($data, 'stages');
+        if ($id === null || $id === '') {
+            throw new \InvalidArgumentException('Profile field "name" or "id" must be a non-empty string.');
+        }
 
-        if ($rceVerified) {
-            foreach (['zif_system', 'zval_ptr_dtor'] as $key) {
-                if (!array_key_exists($key, $offsets)
-                    || (!is_string($offsets[$key]) && !is_int($offsets[$key]))
-                    || trim((string) $offsets[$key]) === '') {
-                    throw new \InvalidArgumentException(sprintf('Profile field "offsets.%s" is required for a verified profile.', $key));
-                }
+        $phpVersion = self::stringValue($data, 'php_version', true);
+        $branch = self::stringValue($data, 'branch', true);
+        $sapi = self::stringValue($data, 'sapi', true);
+        $arch = self::normalizeArch(self::stringValue($data, 'arch', true) ?? '');
+        $fixedIn = self::stringValue($data, 'fixed_in', false);
+        $distro = self::normalizeDistro(self::stringValue($data, 'distro', false) ?? self::stringValue($data, 'os', false));
+        $verified = self::boolValue($data, 'verified');
+        $rce = self::boolValue($data, 'rce');
+        $rceVerified = $verified && $rce;
+        $upstream = self::stringValue($data, 'upstream_profile', false) ?? 'bookworm';
+
+        $libphpData = self::arrayValue($data, 'libphp');
+        $stages = self::arrayValue($data, 'stages');
+
+        $libphp = [
+            'zif_system' => self::hexValue($libphpData['zif_system'] ?? null, 'libphp.zif_system', $rceVerified),
+            'zval_ptr_dtor' => self::hexValue($libphpData['zval_ptr_dtor'] ?? null, 'libphp.zval_ptr_dtor', $rceVerified),
+            'htdata' => self::hexValue($libphpData['htdata'] ?? null, 'libphp.htdata', $rceVerified),
+        ];
+
+        $stage1N = self::intValue($stages['stage1_n'] ?? null, 'stages.stage1_n', $rceVerified);
+        $stage1ForgeLen = self::intValue($stages['stage1_forge_len'] ?? null, 'stages.stage1_forge_len', $rceVerified);
+        $stage2T = self::intValue($stages['stage2_t'] ?? null, 'stages.stage2_t', $rceVerified);
+        $stage2V = self::intValue($stages['stage2_v'] ?? null, 'stages.stage2_v', $rceVerified);
+        $stage3Pads = self::pads($stages['stage3_pads'] ?? null, $rceVerified);
+        $stage3Carrier = self::boolValue($stages, 'stage3_carrier', $rceVerified);
+
+        $oomMb = self::optionalPositiveInt($data, 'oom_mb', 12);
+        $oomMarginMb = self::optionalPositiveInt($data, 'oom_margin_mb', 12);
+
+        $tested = [];
+        if (isset($data['memory_limit_tested_mb'])) {
+            if (!is_array($data['memory_limit_tested_mb'])) {
+                throw new \InvalidArgumentException('Profile field "memory_limit_tested_mb" must be a list of integers.');
             }
 
-            foreach ([
-                'a1_big',
-                'a1_query',
-                'b1_fake_len',
-                'b1_spec',
-                'a2_parts',
-                'a2_depth',
-                'a2_fillers',
-                'b2_vl',
-                'b2_n1',
-                'b2_n2',
-                'carrier_size',
-                'main_s_offset',
-            ] as $key) {
-                if (!array_key_exists($key, $stages)) {
-                    throw new \InvalidArgumentException(sprintf('Profile field "stages.%s" is required for a verified profile.', $key));
+            foreach ($data['memory_limit_tested_mb'] as $value) {
+                if (!is_int($value) || $value < 1) {
+                    throw new \InvalidArgumentException('Profile field "memory_limit_tested_mb" must be a list of positive integers.');
                 }
+                $tested[] = $value;
             }
         }
 
         return new self(
             data: $data,
             id: $id,
-            phpVersion: $phpVersion,
-            sapi: $sapi,
+            phpVersion: $phpVersion ?? '',
+            branch: $branch ?? '',
+            fixedIn: $fixedIn,
+            sapi: $sapi ?? '',
             arch: $arch,
-            workers: $workers,
+            distro: $distro,
             rceVerified: $rceVerified,
-            offsets: $offsets,
-            stages: $stages,
+            libphp: $libphp,
+            stage1N: $stage1N,
+            stage1ForgeLen: $stage1ForgeLen,
+            stage2T: $stage2T,
+            stage2V: $stage2V,
+            stage3Pads: $stage3Pads,
+            stage3Carrier: $stage3Carrier,
+            oomMb: $oomMb,
+            oomMarginMb: $oomMarginMb,
+            memoryLimitTestedMb: $tested,
+            upstreamProfile: $upstream,
         );
     }
 
@@ -119,6 +152,16 @@ final class Profile
         return $this->phpVersion;
     }
 
+    public function branch(): string
+    {
+        return $this->branch;
+    }
+
+    public function fixedIn(): ?string
+    {
+        return $this->fixedIn;
+    }
+
     public function sapi(): string
     {
         return $this->sapi;
@@ -129,9 +172,9 @@ final class Profile
         return $this->arch;
     }
 
-    public function workers(): int
+    public function distro(): ?string
     {
-        return $this->workers;
+        return $this->distro;
     }
 
     public function rceVerified(): bool
@@ -140,19 +183,67 @@ final class Profile
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{zif_system: int, zval_ptr_dtor: int, htdata: int}
      */
-    public function offsets(): array
+    public function libphp(): array
     {
-        return $this->offsets;
+        return $this->libphp;
+    }
+
+    public function stage1N(): int
+    {
+        return $this->stage1N;
+    }
+
+    public function stage1ForgeLen(): int
+    {
+        return $this->stage1ForgeLen;
+    }
+
+    public function stage2T(): int
+    {
+        return $this->stage2T;
+    }
+
+    public function stage2V(): int
+    {
+        return $this->stage2V;
     }
 
     /**
-     * @return array<string, mixed>
+     * @return list<array{0: int, 1: int}>
      */
-    public function stages(): array
+    public function stage3Pads(): array
     {
-        return $this->stages;
+        return $this->stage3Pads;
+    }
+
+    public function stage3Carrier(): bool
+    {
+        return $this->stage3Carrier;
+    }
+
+    public function oomMb(): int
+    {
+        return $this->oomMb;
+    }
+
+    public function oomMarginMb(): int
+    {
+        return $this->oomMarginMb;
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function memoryLimitTestedMb(): array
+    {
+        return $this->memoryLimitTestedMb;
+    }
+
+    public function upstreamProfile(): string
+    {
+        return $this->upstreamProfile;
     }
 
     /**
@@ -166,23 +257,33 @@ final class Profile
     /**
      * @param array<string, mixed> $data
      */
-    private static function requiredString(array $data, string $key): string
+    private static function stringValue(array $data, string $key, bool $required): ?string
     {
-        $value = $data[$key] ?? null;
+        if (!array_key_exists($key, $data)) {
+            if ($required) {
+                throw new \InvalidArgumentException(sprintf('Profile field "%s" is required.', $key));
+            }
 
-        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        if (!is_string($data[$key]) || trim($data[$key]) === '') {
             throw new \InvalidArgumentException(sprintf('Profile field "%s" must be a non-empty string.', $key));
         }
 
-        return $value;
+        return $data[$key];
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    private static function optionalBool(array $data, string $key): bool
+    private static function boolValue(array $data, string $key, bool $required = false): bool
     {
         if (!array_key_exists($key, $data)) {
+            if ($required) {
+                throw new \InvalidArgumentException(sprintf('Profile field "%s" is required.', $key));
+            }
+
             return false;
         }
 
@@ -197,14 +298,103 @@ final class Profile
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
-    private static function optionalArray(array $data, string $key): array
+    private static function arrayValue(array $data, string $key): array
     {
-        if (!array_key_exists($key, $data)) {
+        if (!array_key_exists($key, $data) || !is_array($data[$key])) {
             return [];
         }
 
-        if (!is_array($data[$key])) {
-            throw new \InvalidArgumentException(sprintf('Profile field "%s" must be an object or array.', $key));
+        return $data[$key];
+    }
+
+    private static function intValue(mixed $value, string $field, bool $required): int
+    {
+        if ($value === null) {
+            if ($required) {
+                throw new \InvalidArgumentException(sprintf('Profile field "%s" is required for a verified profile.', $field));
+            }
+
+            return 0;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^-?(?:0x[0-9a-f]+|\d+)$/i', trim($value)) === 1) {
+            return (int) intval(trim($value), 0);
+        }
+
+        throw new \InvalidArgumentException(sprintf('Profile field "%s" must be an integer.', $field));
+    }
+
+    private static function hexValue(mixed $value, string $field, bool $required): int
+    {
+        if ($value === null) {
+            if ($required) {
+                throw new \InvalidArgumentException(sprintf('Profile field "%s" is required for a verified profile.', $field));
+            }
+
+            return 0;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^0x[0-9a-f]+$/i', trim($value)) === 1) {
+            return (int) hexdec(substr(trim($value), 2));
+        }
+
+        throw new \InvalidArgumentException(sprintf('Profile field "%s" must be a hexadecimal string or integer.', $field));
+    }
+
+    /**
+     * @return list<array{0: int, 1: int}>
+     */
+    private static function pads(mixed $value, bool $required): array
+    {
+        if ($value === null) {
+            if ($required) {
+                throw new \InvalidArgumentException('Profile field "stages.stage3_pads" is required for a verified profile.');
+            }
+
+            return [];
+        }
+
+        if (!is_array($value) || !array_is_list($value)) {
+            throw new \InvalidArgumentException('Profile field "stages.stage3_pads" must be a list of pairs.');
+        }
+
+        $pads = [];
+        foreach ($value as $pair) {
+            if (!is_array($pair) || count($pair) !== 2 || !array_is_list($pair)) {
+                throw new \InvalidArgumentException('Each stage3 pad must be a pair of integers.');
+            }
+
+            $nl = self::intValue($pair[0], 'stages.stage3_pads', true);
+            $vl = self::intValue($pair[1], 'stages.stage3_pads', true);
+            if ($nl < 0 || $vl < 0) {
+                throw new \InvalidArgumentException('Stage3 pads must not be negative.');
+            }
+
+            $pads[] = [$nl, $vl];
+        }
+
+        return $pads;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private static function optionalPositiveInt(array $data, string $key, int $default): int
+    {
+        if (!array_key_exists($key, $data)) {
+            return $default;
+        }
+
+        if (!is_int($data[$key]) || $data[$key] < 1) {
+            throw new \InvalidArgumentException(sprintf('Profile field "%s" must be a positive integer.', $key));
         }
 
         return $data[$key];
@@ -217,5 +407,27 @@ final class Profile
             'aarch64', 'arm64' => 'aarch64',
             default => throw new \InvalidArgumentException('Profile field "arch" must be amd64/x86_64 or aarch64/arm64.'),
         };
+    }
+
+    private static function normalizeDistro(?string $distro): ?string
+    {
+        if ($distro === null) {
+            return null;
+        }
+
+        $lower = strtolower($distro);
+        foreach (['debian', 'bookworm', 'bullseye', 'buster', 'trixie'] as $token) {
+            if (str_contains($lower, $token)) {
+                return 'debian';
+            }
+        }
+
+        foreach (['ubuntu', 'alpine', 'fedora', 'centos', 'rhel', 'red hat', 'amazon linux', 'suse', 'arch linux'] as $token) {
+            if (str_contains($lower, $token)) {
+                return $token;
+            }
+        }
+
+        return $lower;
     }
 }

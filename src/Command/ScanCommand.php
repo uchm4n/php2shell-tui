@@ -27,8 +27,8 @@ use Php2ShellTui\Engine;
 use Php2ShellTui\Http\Client;
 use Php2ShellTui\Http\Pool;
 use Php2ShellTui\PhpVersionDb;
-use Php2ShellTui\Poc\GuessPlan;
-use Php2ShellTui\Poc\Php2ShellPoc;
+use Php2ShellTui\Poc\PocPlan;
+use Php2ShellTui\Poc\ProfileCatalog;
 use Php2ShellTui\Report\Report;
 use Php2ShellTui\ScanCancelled;
 use Php2ShellTui\ScanRestart;
@@ -52,6 +52,11 @@ final class ScanCommand extends Command
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format: tui, text, json, markdown', '')
             ->addOption('no-tui', null, InputOption::VALUE_NONE, 'Never use the interactive interface')
             ->addOption('verify', null, InputOption::VALUE_NONE, 'Run the proof-of-concept requests (explicit authorization)')
+            ->addOption('php-version', null, InputOption::VALUE_REQUIRED, 'Exact PHP version (x.y.z) when the target hides it')
+            ->addOption('arch', null, InputOption::VALUE_REQUIRED, 'Target architecture: amd64 or aarch64')
+            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Explicit calibrated profile id or path')
+            ->addOption('workers', null, InputOption::VALUE_REQUIRED, 'Target prefork MaxRequestWorkers')
+            ->addOption('memory-limit', null, InputOption::VALUE_REQUIRED, 'Target memory_limit in MiB when phpinfo hides it')
             ->addOption('yes', 'y', InputOption::VALUE_NONE, 'Deprecated; accepted for compatibility (--verify is the confirmation)')
             ->addOption('output-dir', null, InputOption::VALUE_REQUIRED, 'Directory for the written report');
     }
@@ -76,6 +81,22 @@ final class ScanCommand extends Command
             }
 
             $verify = (bool) $input->getOption('verify');
+            $option = static function (string $name) use ($input): ?string {
+                $value = $input->getOption($name);
+
+                return is_string($value) && trim($value) !== '' ? trim($value) : null;
+            };
+            $positiveInt = static function (?string $value, string $name): ?int {
+                if ($value === null) {
+                    return null;
+                }
+
+                if (preg_match('/^\d+$/', $value) !== 1 || (int) $value < 1) {
+                    throw new \InvalidArgumentException(sprintf('--%s must be a positive integer.', $name));
+                }
+
+                return (int) $value;
+            };
 
             $root = dirname(__DIR__, 2);
             $dataDir = $root . '/src/Data';
@@ -97,15 +118,17 @@ final class ScanCommand extends Command
             $reproduce = new Reproduce($dataDir . '/repro');
             $db = PhpVersionDb::fromFile($dataDir . '/php-affected.json');
 
-            $guess = $config->pocGuess
-                ? new GuessPlan(
-                    profiles: $config->pocProfiles,
-                    arch: $config->pocArch,
-                    workers: $config->pocWorkers,
-                    maxAttempts: $config->pocMaxAttempts,
-                    totalTimeout: $config->pocTotalTimeout,
-                )
-                : null;
+            $plan = new PocPlan(
+                profile: $option('profile') ?? $config->pocProfile,
+                version: $option('php-version'),
+                arch: $option('arch'),
+                workers: $positiveInt($option('workers'), 'workers') ?? $config->pocWorkers,
+                memoryLimitMb: $positiveInt($option('memory-limit'), 'memory-limit') ?? $config->pocMemoryLimit,
+                timeout: $config->pocTimeout,
+                requestTimeout: $config->pocRequestTimeout,
+                retries: $config->pocRetries,
+                maxWorkers: $config->pocMaxWorkers,
+            );
 
             $checks = [
                 'php_presence' => new PhpDetection($reproduce),
@@ -114,15 +137,9 @@ final class ScanCommand extends Command
                     $reproduce,
                     $verify,
                     $db,
-                    new Php2ShellPoc(
-                        client: $client,
-                        timeout: $config->pocTimeout,
-                        maxWorkers: $config->pocMaxWorkers,
-                    ),
-                    $dataDir . '/poc',
-                    $guess,
+                    new ProfileCatalog($dataDir . '/poc'),
+                    $plan,
                     $client,
-                    workers: $config->pocWorkers,
                 ),
                 'sensitive_files' => new SensitiveFiles($wordlists, $reproduce),
                 'security_headers' => new SecurityHeaders($reproduce),
