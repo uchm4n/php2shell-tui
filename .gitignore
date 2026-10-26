@@ -8,3 +8,4 @@
 /.opencode/
 .DS_Store
 bin/*.phar
+/docs/
