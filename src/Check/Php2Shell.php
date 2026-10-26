@@ -10,8 +10,13 @@ use Php2ShellTui\Http\Client;
 use Php2ShellTui\PhpFingerprint;
 use Php2ShellTui\PhpVersionAssessment;
 use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Poc\PocPlan;
+use Php2ShellTui\Poc\PocResult;
+use Php2ShellTui\Poc\Profile;
 use Php2ShellTui\Poc\ProfileCatalog;
+use Php2ShellTui\ScanCancelled;
+use Php2ShellTui\ScanRestart;
 use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
 use Psr\Http\Message\ResponseInterface;
@@ -25,9 +30,11 @@ final class Php2Shell implements Check, ProgressAware
         private readonly Reproduce $reproduce,
         private readonly bool $verify,
         private readonly PhpVersionDb $db,
+        private readonly ?Php2ShellPoc $poc = null,
         private readonly ?ProfileCatalog $catalog = null,
         private readonly ?PocPlan $plan = null,
         private readonly ?Client $client = null,
+        private readonly ?\Closure $runner = null,
     ) {
     }
 
@@ -56,11 +63,150 @@ final class Php2Shell implements Check, ProgressAware
             return $findings;
         }
 
-        if ($this->catalog === null || $this->plan === null) {
+        if ($this->poc === null || $this->catalog === null || $this->plan === null) {
             return [...$findings, $this->inconclusive($target, 'verification is not configured')];
         }
 
-        return [...$findings, $this->inconclusive($target, 'verification runner is not wired yet')];
+        try {
+            [$profile, $reason] = $this->selectProfile($target, $fingerprint, $this->plan);
+        } catch (\Throwable $e) {
+            return [...$findings, $this->inconclusive($target, 'profile is invalid: ' . $e->getMessage())];
+        }
+
+        if ($profile === null) {
+            return [...$findings, $this->inconclusive($target, $reason)];
+        }
+
+        [$runPlan, $reason] = $this->gate($target, $fingerprint, $profile, $this->plan);
+
+        if ($runPlan === null) {
+            return [...$findings, $this->inconclusive($target, $reason)];
+        }
+
+        $this->reportVerify($target, 1, 1);
+
+        try {
+            $result = $this->runner !== null
+                ? ($this->runner)($target, $profile, $runPlan)
+                : $this->poc->run($target, $profile, $runPlan, $this->onTick);
+        } catch (ScanCancelled|ScanRestart $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return [...$findings, $this->inconclusive($target, 'verification failed: ' . $e->getMessage())];
+        }
+
+        if (!$result->confirmed) {
+            return [...$findings, $this->inconclusive($target, $result->reason)];
+        }
+
+        return [...$findings, $this->rceFinding($target, $profile, $result)];
+    }
+
+    /**
+     * @return array{0: ?Profile, 1: string}
+     */
+    private function selectProfile(Target $target, PhpFingerprint $fingerprint, PocPlan $plan): array
+    {
+        $explicit = $plan->profile ?? $target->pocProfile;
+        $versions = $plan->version !== null
+            ? [$plan->version]
+            : array_values(array_unique(array_column($fingerprint->versions(), 'version')));
+
+        if ($versions === [] && $explicit === null) {
+            return [null, 'PHP version is unknown; pass --php-version X.Y.Z'];
+        }
+
+        if ($versions === []) {
+            $selection = $this->catalog->select(null, $plan->arch, $explicit, $fingerprint->serverOs());
+
+            return [$selection['profile'], $selection['reason']];
+        }
+
+        $reason = '';
+        foreach ($versions as $version) {
+            $selection = $this->catalog->select($version, $plan->arch, $explicit, $fingerprint->serverOs());
+
+            if ($selection['profile'] !== null) {
+                return [$selection['profile'], ''];
+            }
+
+            if ($reason === '') {
+                $reason = $selection['reason'];
+            }
+        }
+
+        return [null, $reason];
+    }
+
+    /**
+     * @return array{0: ?PocPlan, 1: string}
+     */
+    private function gate(Target $target, PhpFingerprint $fingerprint, Profile $profile, PocPlan $plan): array
+    {
+        if ($plan->workers === null) {
+            return [null, 'workers are not configured; set poc.workers to the target MaxRequestWorkers (1 for a single-worker lab)'];
+        }
+
+        $sapi = $fingerprint->sapi();
+        if (self::sapiStatus($sapi) === 'closed') {
+            return [null, 'the verified chain is mod_php only' . ($sapi !== null ? ' (SAPI: ' . $sapi . ')' : '')];
+        }
+
+        $ini = $fingerprint->ini();
+
+        if (self::flagStatus($ini['session.upload_progress.enabled'] ?? null, 'on') === 'closed') {
+            return [null, 'session.upload_progress.enabled is off'];
+        }
+
+        if (self::flagStatus($ini['display_errors'] ?? null, 'on') === 'closed') {
+            return [null, 'display_errors is off; the parametric chain needs it on'];
+        }
+
+        if (self::flagStatus($ini['session.use_strict_mode'] ?? null, 'off') === 'closed') {
+            return [null, 'session.use_strict_mode is on'];
+        }
+
+        $memory = $plan->memoryLimitMb;
+
+        if ($memory === null) {
+            $observed = self::sizeToMb($ini['memory_limit'] ?? null);
+            if ($observed === -1) {
+                return [null, 'memory_limit is unlimited'];
+            }
+            if ($observed !== null) {
+                $memory = $observed;
+            }
+        }
+
+        if ($memory === null) {
+            $memory = $this->poc?->probeMemoryLimit($target, $plan->requestTimeout);
+        }
+
+        if ($memory === null) {
+            $memory = $profile->oomMb();
+        }
+
+        if ($memory < 1) {
+            return [null, 'memory_limit is unlimited'];
+        }
+
+        $huge = $memory === 8 && $profile->oomMb() > 0
+            ? $profile->oomMb()
+            : $memory + $profile->oomMarginMb();
+        $postMax = self::sizeToMb($ini['post_max_size'] ?? null);
+
+        if ($postMax !== null && $postMax > 0 && $postMax < $huge) {
+            return [null, sprintf('post_max_size is below the required %dM for memory_limit=%dM', $huge, $memory)];
+        }
+
+        return [$plan->withMemoryLimit($memory), ''];
+    }
+
+    private function reportVerify(Target $target, int $done, int $total): void
+    {
+        if ($this->onProgress !== null) {
+            ($this->onProgress)($target->label(), 'verify', $done, $total);
+        }
     }
 
     private function exposureFinding(Target $target, PhpFingerprint $fingerprint): Finding
@@ -277,6 +423,24 @@ final class Php2Shell implements Check, ProgressAware
             'g' => 1024,
             't' => 1024 * 1024,
         });
+    }
+
+    private function rceFinding(Target $target, Profile $profile, PocResult $result): Finding
+    {
+        return new Finding(
+            id: 'php2shell-rce',
+            title: 'PHP2Shell - RCE confirmed',
+            severity: Severity::Critical,
+            target: $target->label(),
+            evidence: sprintf(
+                'Profile %s; the unique proof marker "%s" was fetched from %s.',
+                $profile->id(),
+                (string) $result->proof,
+                $result->proofPath ?? 'the proof path',
+            ),
+            exploit: 'The target executed a unique command; this is confirmed remote code execution.',
+            reproduce: $this->reproduce->steps('php2shell-rce', $target->url, $target->label()),
+        );
     }
 
     private function inconclusive(Target $target, string $reason): Finding

@@ -7,7 +7,13 @@ namespace Php2ShellTui\Tests\Unit;
 use GuzzleHttp\Psr7\Response;
 use Php2ShellTui\Check\Php2Shell;
 use Php2ShellTui\Data\Reproduce;
+use Php2ShellTui\Finding;
 use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Poc\Php2ShellPoc;
+use Php2ShellTui\Poc\PocPlan;
+use Php2ShellTui\Poc\PocResult;
+use Php2ShellTui\Poc\Profile;
+use Php2ShellTui\Poc\ProfileCatalog;
 use Php2ShellTui\Severity;
 use Php2ShellTui\Target;
 use PHPUnit\Framework\TestCase;
@@ -25,21 +31,92 @@ final class Php2ShellTest extends TestCase
         $this->target = new Target('https://app.example/');
     }
 
-    private function phpinfoBody(string $sapi = 'Apache 2.0 Handler'): string
+    private function phpinfoBody(string $sapi = 'Apache 2.0 Handler', array $overrides = [], string $version = '8.4.26'): string
     {
-        $rows = '';
-        foreach ([
-            'Server API' => $sapi,
+        $values = array_merge([
             'session.upload_progress.enabled' => 'On',
             'memory_limit' => '128M',
             'post_max_size' => '256M',
             'display_errors' => 'On',
             'session.use_strict_mode' => '0',
-        ] as $name => $value) {
+            'session.use_only_cookies' => 'On',
+            'session.serialize_handler' => 'php',
+        ], $overrides);
+        $values['Server API'] = $sapi;
+
+        $rows = '';
+        foreach ($values as $name => $value) {
             $rows .= '<tr><td class="e">' . $name . '</td><td class="v">' . $value . '</td></tr>';
         }
 
-        return '<html><body><h1>PHP Version 8.4.26</h1><table>' . $rows . '</table></body></html>';
+        return '<html><body><h1>PHP Version ' . $version . '</h1><table>' . $rows . '</table></body></html>';
+    }
+
+    /**
+     * @param array<string, string> $overrides
+     * @return array<string, Response>
+     */
+    private function responses(array $overrides = []): array
+    {
+        $version = $overrides['version'] ?? '8.4.26';
+        $server = $overrides['server'] ?? 'Apache/2.4.69 (Debian)';
+        $sapi = $overrides['sapi'] ?? 'Apache 2.0 Handler';
+        $ini = $overrides;
+        unset($ini['version'], $ini['server'], $ini['sapi']);
+
+        return [
+            '/' => new Response(200, [
+                'X-Powered-By' => 'PHP/' . $version,
+                'Server' => $server,
+            ], 'OK'),
+            '/phpinfo.php' => new Response(200, [], $this->phpinfoBody($sapi, $ini, $version)),
+        ];
+    }
+
+    /**
+     * @param list<array{0: string, 1: ?int, 2: ?int}> $calls
+     */
+    private function runner(array &$calls, ?PocResult $result = null): \Closure
+    {
+        $result ??= new PocResult(true, 'RCE confirmed', 'ABCDEFG', null, 'https://app.example/p');
+
+        return static function (Target $target, Profile $profile, PocPlan $plan) use (&$calls, $result): PocResult {
+            $calls[] = [$profile->id(), $plan->memoryLimitMb, $plan->workers];
+
+            return $result;
+        };
+    }
+
+    /**
+     * @param list<array{0: string, 1: ?int, 2: ?int}> $calls
+     */
+    private function check(array &$calls, ?PocPlan $plan = null, ?PocResult $result = null): Php2Shell
+    {
+        return new Php2Shell(
+            $this->reproduce,
+            true,
+            $this->db,
+            new Php2ShellPoc(),
+            new ProfileCatalog(__DIR__ . '/../../src/Data/poc'),
+            $plan ?? new PocPlan(workers: 1, memoryLimitMb: 128),
+            null,
+            $this->runner($calls, $result),
+        );
+    }
+
+    /**
+     * @param list<Finding> $findings
+     */
+    private function inconclusive(array $findings): Finding
+    {
+        $matches = array_values(array_filter(
+            $findings,
+            static fn (Finding $finding): bool => $finding->id === 'php2shell-poc-inconclusive',
+        ));
+
+        self::assertNotEmpty($matches);
+
+        return $matches[0];
     }
 
     public function testTheDefaultScanReportsTheExposureChecklist(): void
@@ -103,5 +180,164 @@ final class Php2ShellTest extends TestCase
 
         self::assertSame(Severity::High, $findings[0]->severity);
         self::assertStringContainsString('undetermined', $findings[0]->title);
+    }
+
+    public function testItReportsCriticalOnlyForAConfirmedProof(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, $this->responses());
+
+        self::assertSame([['php-8.4.26-bookworm-amd64', 128, 1]], $calls);
+        $rce = array_values(array_filter(
+            $findings,
+            static fn (Finding $finding): bool => $finding->id === 'php2shell-rce',
+        ))[0];
+        self::assertSame(Severity::Critical, $rce->severity);
+        self::assertStringContainsString('ABCDEFG', $rce->evidence);
+        self::assertStringContainsString('https://app.example/p', $rce->evidence);
+    }
+
+    public function testItSendsNoPayloadForAKnownFpmTarget(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, $this->responses(['sapi' => 'FPM/FastCGI']));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('mod_php', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWhenDisplayErrorsIsOff(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze($this->target, $this->responses(['display_errors' => 'Off']));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('display_errors', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWhenUploadProgressIsOff(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['session.upload_progress.enabled' => 'Off']),
+        );
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('session.upload_progress', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWhenStrictModeIsOn(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['session.use_strict_mode' => '1']),
+        );
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('use_strict_mode', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWhenMemoryIsUnlimited(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: null),
+        )->analyze($this->target, $this->responses(['memory_limit' => '-1']));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('memory_limit', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWhenPostMaxIsBelowTheOomSize(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: 1, memoryLimitMb: 128),
+        )->analyze($this->target, $this->responses(['post_max_size' => '8M']));
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('post_max_size', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItSendsNoPayloadWithoutWorkers(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(workers: null, memoryLimitMb: 128),
+        )->analyze($this->target, $this->responses());
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('workers', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItRefusesWhenTheVersionHasMultipleArchitectures(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['version' => '8.5.11']),
+        );
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('arch', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItRefusesAnUncalibratedVersion(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['version' => '7.4.33']),
+        );
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('no calibrated profile', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItRefusesADistroMismatch(): void
+    {
+        $calls = [];
+        $findings = $this->check($calls)->analyze(
+            $this->target,
+            $this->responses(['server' => 'Apache/2.4.69 (Ubuntu)']),
+        );
+
+        self::assertSame([], $calls);
+        self::assertStringContainsString('debian', $this->inconclusive($findings)->evidence);
+    }
+
+    public function testItReportsAFailedProofWithoutClaimingSafety(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            null,
+            new PocResult(false, 'no proof'),
+        )->analyze($this->target, $this->responses());
+
+        self::assertCount(1, $calls);
+        $info = $this->inconclusive($findings);
+        self::assertStringContainsString('no proof', $info->evidence);
+        self::assertStringContainsString('do not treat this as safe', $info->exploit);
+    }
+
+    public function testACliVersionOverrideSelectsTheRequestedProfile(): void
+    {
+        $calls = [];
+        $findings = $this->check(
+            $calls,
+            new PocPlan(version: '8.4.26', workers: 1, memoryLimitMb: 128),
+        )->analyze($this->target, $this->responses(['version' => '8.5.12']));
+
+        self::assertSame([['php-8.4.26-bookworm-amd64', 128, 1]], $calls);
+        self::assertSame(
+            1,
+            count(array_filter($findings, static fn (Finding $f): bool => $f->id === 'php2shell-rce')),
+        );
     }
 }

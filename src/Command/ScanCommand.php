@@ -27,6 +27,7 @@ use Php2ShellTui\Engine;
 use Php2ShellTui\Http\Client;
 use Php2ShellTui\Http\Pool;
 use Php2ShellTui\PhpVersionDb;
+use Php2ShellTui\Poc\Php2ShellPoc;
 use Php2ShellTui\Poc\PocPlan;
 use Php2ShellTui\Poc\ProfileCatalog;
 use Php2ShellTui\Report\Report;
@@ -137,6 +138,7 @@ final class ScanCommand extends Command
                     $reproduce,
                     $verify,
                     $db,
+                    new Php2ShellPoc(client: $client),
                     new ProfileCatalog($dataDir . '/poc'),
                     $plan,
                     $client,

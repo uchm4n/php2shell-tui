@@ -158,7 +158,7 @@ final class ScanCommandTest extends TestCase
             'targets' => [[
                 'url' => 'http://127.0.0.1:' . $port . '/',
                 'post_path' => '/index.php',
-                'poc_profile' => 'php-8.4.26-apache-bookworm-amd64',
+                'poc_profile' => 'php-8.4.26-bookworm-amd64',
             ]],
             'checks' => ['php2shell' => true],
         ]);
@@ -213,6 +213,57 @@ final class ScanCommandTest extends TestCase
             ]);
 
             self::assertNotSame(2, $code);
+            self::assertStringNotContainsString('php2shell-rce', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testThePhp2ShellVerifyWithoutWorkersSendsNoPayload(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $this->php2shellConfig($port),
+                '--format' => 'json',
+                '--verify' => true,
+            ]);
+
+            self::assertNotSame(2, $code);
+            self::assertStringContainsString('php2shell-poc-inconclusive', $output);
+            self::assertStringContainsString('workers', $output);
+            self::assertStringNotContainsString('php2shell-rce', $output);
+        } finally {
+            self::killServer($process, $port);
+        }
+    }
+
+    public function testThePhp2ShellVerifyWithoutAProfileSendsNoPayload(): void
+    {
+        [$port, $process] = $this->fixture();
+
+        try {
+            $config = $this->writeConfig([
+                'targets' => [[
+                    'url' => 'http://127.0.0.1:' . $port . '/',
+                    'post_path' => '/index.php',
+                ]],
+                'checks' => ['php2shell' => true],
+            ]);
+
+            [$code, $output] = $this->runCommand([
+                'command' => 'scan',
+                '--config' => $config,
+                '--format' => 'json',
+                '--verify' => true,
+                '--php-version' => '7.4.33',
+                '--workers' => '1',
+            ]);
+
+            self::assertNotSame(2, $code);
+            self::assertStringContainsString('no calibrated profile', $output);
             self::assertStringNotContainsString('php2shell-rce', $output);
         } finally {
             self::killServer($process, $port);

